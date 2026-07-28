@@ -6,7 +6,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
 import { localDay, prettyDay, ago } from "@/lib/day";
 import type { Profile, QuestionAnswer, Tier } from "@/lib/types";
-import { Button, Flash, useFlash } from "@/components/ui";
+import { Button, Flash, Problem, useFlash } from "@/components/ui";
 
 type Loaded = {
   questionId: string;
@@ -39,21 +39,31 @@ export default function DailyQuestion({
   const [data, setData] = useState<Loaded | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const [flash, setFlash] = useFlash();
   const day = localDay();
 
   const load = useCallback(async () => {
     const sb = supabaseBrowser();
 
-    const { data: question } = await sb
+    const { data: question, error: questionError } = await sb
       .rpc("ensure_daily_question", { p_day: day })
       .single<{ id: string; prompt_id: string }>();
-    if (!question) return;
 
-    const [{ data: prompt }, { data: answers }] = await Promise.all([
+    if (questionError || !question) {
+      setProblem(questionError?.message ?? "Could not pick today's question.");
+      return;
+    }
+
+    const [{ data: prompt }, { data: answers, error: answersError }] = await Promise.all([
       sb.from("prompts").select("body, tier").eq("id", question.prompt_id).single(),
       sb.from("question_answers").select("*").eq("question_id", question.id),
     ]);
+
+    // Reading answers is the step that fails if the reveal policy is wrong, and
+    // it fails silently from the user's point of view — the box just stays
+    // empty. Say so instead.
+    setProblem(answersError?.message ?? null);
 
     setData({
       questionId: question.id,
@@ -90,10 +100,19 @@ export default function DailyQuestion({
 
     setSaving(false);
     if (error) {
+      // A duplicate key here means the answer already saved and only the
+      // read-back failed, so recover rather than blaming the user.
+      if (error.code === "23505") {
+        setDraft("");
+        load();
+        return;
+      }
+      setProblem(error.message);
       setFlash("Could not save that");
       return;
     }
 
+    setProblem(null);
     setDraft("");
     notifyPartner({
       title: me.display_name,
@@ -105,7 +124,11 @@ export default function DailyQuestion({
   }
 
   if (!data) {
-    return <div className="pt-20 text-center text-sm text-ink-faint">…</div>;
+    return (
+      <div className="pt-20 text-center text-sm text-ink-faint">
+        {problem ? <Problem message={problem} /> : "…"}
+      </div>
+    );
   }
 
   const mine = data.answers.find((a) => a.user_id === me.id) ?? null;
@@ -121,6 +144,8 @@ export default function DailyQuestion({
         </div>
         <h1 className="mt-3 font-serif text-[1.6rem] leading-snug">{data.body}</h1>
       </header>
+
+      {problem && <Problem message={problem} />}
 
       {!mine ? (
         <div className="card p-4">

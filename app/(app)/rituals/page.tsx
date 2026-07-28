@@ -6,6 +6,8 @@ import { Empty, Section } from "@/components/ui";
 import NightlyThree from "@/components/rituals/NightlyThree";
 import QuestionJar from "@/components/rituals/QuestionJar";
 import Capsules from "@/components/rituals/Capsules";
+import VoiceNote from "@/components/rituals/VoiceNote";
+import Incoming from "@/components/rituals/Incoming";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +33,14 @@ export default async function RitualsPage() {
         <h1 className="mt-0.5 font-serif text-[1.75rem]">Rituals</h1>
       </header>
 
+      <Incoming partner={partner} />
+
       <Section title="Tonight">
         <NightlyThree me={me} partner={partner} />
+      </Section>
+
+      <Section title="Out loud">
+        <VoiceNote me={me} partner={partner} />
       </Section>
 
       <Section title="Questions">

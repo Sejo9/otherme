@@ -6,8 +6,8 @@ import { useEffect } from "react";
 
 const TABS = [
   { href: "/", label: "Today", icon: "◉" },
-  { href: "/question", label: "Question", icon: "✎" },
-  { href: "/knowme", label: "Know me", icon: "◆" },
+  { href: "/question", label: "Ask", icon: "✎" },
+  { href: "/games", label: "Play", icon: "◆" },
   { href: "/timeline", label: "Us", icon: "❋" },
   { href: "/rituals", label: "Rituals", icon: "☾" },
 ];

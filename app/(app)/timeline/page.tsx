@@ -4,6 +4,7 @@ import { daysSince } from "@/lib/day";
 import type { TimelineEntry } from "@/lib/types";
 import TimelineFeed from "@/components/timeline/TimelineFeed";
 import AddEntry from "@/components/timeline/AddEntry";
+import { SubNav } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,14 @@ export default async function TimelinePage() {
           {together !== null && ` · ${together.toLocaleString()} days in`}
         </p>
       </header>
+
+      <SubNav
+        current="/timeline"
+        items={[
+          { href: "/timeline", label: "Timeline" },
+          { href: "/map", label: "Map" },
+        ]}
+      />
 
       <TimelineFeed entries={entries} me={me} partner={partner} />
       <AddEntry me={me} />

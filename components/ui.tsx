@@ -2,6 +2,37 @@
 
 import { useEffect, useState } from "react";
 
+/**
+ * Segmented control for sibling pages. The bottom bar only has five slots, so
+ * closely-related screens share one slot and switch here.
+ */
+export function SubNav({
+  items,
+  current,
+}: {
+  items: { href: string; label: string }[];
+  current: string;
+}) {
+  return (
+    <div className="mb-4 flex gap-1 rounded-full border border-line bg-sunken p-1">
+      {items.map((item) => {
+        const active = item.href === current;
+        return (
+          <a
+            key={item.href}
+            href={item.href}
+            className={`press flex-1 rounded-full px-3 py-1.5 text-center text-[0.8125rem] font-medium transition-colors ${
+              active ? "bg-ink text-bg" : "text-ink-soft"
+            }`}
+          >
+            {item.label}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Section({
   title,
   action,
@@ -125,5 +156,22 @@ export function Flash({ children }: { children: React.ReactNode }) {
 export function Empty({ children }: { children: React.ReactNode }) {
   return (
     <div className="card px-5 py-8 text-center text-sm text-ink-faint">{children}</div>
+  );
+}
+
+/**
+ * Shows the database's own words rather than a generic apology.
+ *
+ * A recursive RLS policy once presented itself as "could not save that", which
+ * made a schema bug look like a typing bug. Always surface the real message.
+ */
+export function Problem({ message }: { message: string }) {
+  return (
+    <div className="mb-4 rounded-2xl border border-rose/40 bg-rose-soft px-4 py-3 text-left">
+      <p className="text-[0.8125rem] font-medium">Something went wrong</p>
+      <p className="mt-1 font-mono text-[0.75rem] leading-relaxed text-ink-soft">
+        {message}
+      </p>
+    </div>
   );
 }

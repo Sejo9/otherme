@@ -6,7 +6,7 @@ import { uploadImage, useSignedUrl } from "@/lib/media";
 import { notifyPartner } from "@/lib/push";
 import { localDay } from "@/lib/day";
 import type { Profile, TimelineEntry } from "@/lib/types";
-import { Flash, useFlash } from "@/components/ui";
+import { Flash, Sheet, useFlash } from "@/components/ui";
 
 function Slot({
   entry,
@@ -76,8 +76,15 @@ export default function PhotoOfDay({
   const [mine, setMine] = useState<TimelineEntry | null>(null);
   const [theirs, setTheirs] = useState<TimelineEntry | null>(null);
   const [busy, setBusy] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [flash, setFlash] = useFlash();
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Two inputs, because `capture` is a hint that cannot be toggled reliably
+  // once the picker is open: one forces the camera, one forces the library.
+  // Desktop browsers ignore `capture` and open a file dialog for both, so the
+  // same two choices work everywhere.
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
   const day = localDay();
 
   useEffect(() => {
@@ -120,6 +127,7 @@ export default function PhotoOfDay({
     e.target.value = "";
     if (!file) return;
 
+    setChoosing(false);
     setBusy(true);
     try {
       const path = await uploadImage(file, `photos/${me.id}`);
@@ -162,7 +170,7 @@ export default function PhotoOfDay({
           label="You"
           accent={me.accent}
           busy={busy}
-          onPick={() => fileRef.current?.click()}
+          onPick={() => setChoosing(true)}
         />
         <Slot
           entry={theirs}
@@ -171,16 +179,70 @@ export default function PhotoOfDay({
         />
       </div>
 
+      <Sheet
+        open={choosing}
+        onClose={() => setChoosing(false)}
+        title={mine ? "Replace today's photo" : "Today's photo"}
+      >
+        <div className="flex flex-col gap-2 pb-2">
+          <PickOption
+            icon="📷"
+            title="Take a photo"
+            hint="Opens the camera"
+            onClick={() => cameraRef.current?.click()}
+          />
+          <PickOption
+            icon="🖼️"
+            title="Choose an existing photo"
+            hint="From your library or files"
+            onClick={() => libraryRef.current?.click()}
+          />
+        </div>
+      </Sheet>
+
+      {/* `capture` asks the OS for the camera; without it you get the library. */}
       <input
-        ref={fileRef}
+        ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
         onChange={onFile}
         className="hidden"
       />
+      <input
+        ref={libraryRef}
+        type="file"
+        accept="image/*"
+        onChange={onFile}
+        className="hidden"
+      />
 
       <Flash>{flash}</Flash>
     </>
+  );
+}
+
+function PickOption({
+  icon,
+  title,
+  hint,
+  onClick,
+}: {
+  icon: string;
+  title: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="press flex items-center gap-3 rounded-2xl border border-line bg-sunken px-4 py-3.5 text-left"
+    >
+      <span className="text-2xl">{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-[0.75rem] text-ink-faint">{hint}</span>
+      </span>
+    </button>
   );
 }

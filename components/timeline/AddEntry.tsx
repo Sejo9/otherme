@@ -20,6 +20,7 @@ const PLACEHOLDER: Record<EntryKind, string> = {
   song: "Why this song, for them, today?",
   joke: "Explain it for future us, who will have forgotten.",
   place: "What happened here?",
+  voice: "Recorded from Rituals, not here.",
 };
 
 export default function AddEntry({ me }: { me: Profile }) {
@@ -33,7 +34,8 @@ export default function AddEntry({ me }: { me: Profile }) {
   const [day, setDay] = useState(localDay());
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
 
   function reset() {
     setKind("note");
@@ -140,14 +142,42 @@ export default function AddEntry({ me }: { me: Profile }) {
 
           <div>
             <p className="label mb-1.5">Photo</p>
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="press w-full rounded-2xl border border-dashed border-line bg-sunken px-4 py-3 text-sm text-ink-soft"
-            >
-              {file ? `📷 ${file.name}` : "Attach a photo (optional)"}
-            </button>
+            {file ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-line bg-sunken px-4 py-3">
+                <span className="min-w-0 flex-1 truncate text-sm">📷 {file.name}</span>
+                <button
+                  onClick={() => setFile(null)}
+                  className="press shrink-0 text-[0.75rem] text-ink-faint underline"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => cameraRef.current?.click()}
+                  className="press rounded-2xl border border-dashed border-line bg-sunken px-3 py-3 text-sm text-ink-soft"
+                >
+                  📷 Take one
+                </button>
+                <button
+                  onClick={() => libraryRef.current?.click()}
+                  className="press rounded-2xl border border-dashed border-line bg-sunken px-3 py-3 text-sm text-ink-soft"
+                >
+                  🖼️ Choose one
+                </button>
+              </div>
+            )}
             <input
-              ref={fileRef}
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+            <input
+              ref={libraryRef}
               type="file"
               accept="image/*"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}

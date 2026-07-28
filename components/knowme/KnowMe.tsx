@@ -5,7 +5,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
 import { localDay, prettyDay } from "@/lib/day";
 import type { KnowMeResponse, KnowMeScore, Profile } from "@/lib/types";
-import { Button, Flash, useFlash } from "@/components/ui";
+import { Button, Flash, Problem, SubNav, useFlash } from "@/components/ui";
 
 type Round = { id: string; body: string; options: string[] };
 
@@ -30,21 +30,28 @@ export default function KnowMe({
   const [prediction, setPrediction] = useState<number | null>(null);
   const [step, setStep] = useState<"self" | "predict">("self");
   const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const [flash, setFlash] = useFlash();
   const day = localDay();
 
   const load = useCallback(async () => {
     const sb = supabaseBrowser();
 
-    const { data: r } = await sb
+    const { data: r, error: roundError } = await sb
       .rpc("ensure_know_me_round", { p_day: day })
       .single<{ id: string; body: string; options: string[] }>();
-    if (!r) return;
 
-    const [{ data: rows }, { data: score }] = await Promise.all([
+    if (roundError || !r) {
+      setProblem(roundError?.message ?? "Could not pick today's round.");
+      return;
+    }
+
+    const [{ data: rows, error: rowsError }, { data: score }] = await Promise.all([
       sb.from("know_me_responses").select("*").eq("round_id", r.id),
       sb.rpc("know_me_scores"),
     ]);
+
+    setProblem(rowsError?.message ?? null);
 
     setRound({ id: r.id, body: r.body, options: r.options });
     setResponses((rows ?? []) as KnowMeResponse[]);
@@ -79,10 +86,16 @@ export default function KnowMe({
 
     setSaving(false);
     if (error) {
-      setFlash("Could not save that");
+      // Already locked in; only the read-back failed. Recover quietly.
+      if (error.code === "23505") {
+        load();
+        return;
+      }
+      setProblem(error.message);
       return;
     }
 
+    setProblem(null);
     notifyPartner({
       title: me.display_name,
       body: "made their guess — your turn",
@@ -92,7 +105,13 @@ export default function KnowMe({
     load();
   }
 
-  if (!round) return <div className="pt-20 text-center text-sm text-ink-faint">…</div>;
+  if (!round) {
+    return (
+      <div className="pt-20 text-center text-sm text-ink-faint">
+        {problem ? <Problem message={problem} /> : "…"}
+      </div>
+    );
+  }
 
   const mine = responses.find((r) => r.user_id === me.id) ?? null;
   const theirs = responses.find((r) => r.user_id !== me.id) ?? null;
@@ -103,6 +122,14 @@ export default function KnowMe({
 
   return (
     <>
+      <SubNav
+        current="/knowme"
+        items={[
+          { href: "/games", label: "Games" },
+          { href: "/knowme", label: "Know me" },
+        ]}
+      />
+
       <header className="mb-5 pt-2">
         <div className="flex items-center justify-between">
           <p className="label">{prettyDay(day)}</p>
@@ -115,6 +142,8 @@ export default function KnowMe({
         </div>
         <h1 className="mt-3 font-serif text-[1.5rem] leading-snug">{round.body}</h1>
       </header>
+
+      {problem && <Problem message={problem} />}
 
       {!mine ? (
         <>

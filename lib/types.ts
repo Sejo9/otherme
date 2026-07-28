@@ -9,7 +9,11 @@ export type EntryKind =
   | "milestone"
   | "song"
   | "joke"
-  | "place";
+  | "place"
+  | "voice";
+
+export type GameKind = "connect4" | "reversi";
+export type GameStatus = "active" | "won" | "draw" | "resigned";
 
 export type Profile = {
   id: string;
@@ -91,7 +95,26 @@ export type TimelineEntry = {
   occurred_on: string;
   pinned: boolean;
   created_at: string;
+  /** Set on a scheduled voice note: hidden from them until this passes. */
+  deliver_at: string | null;
+  duration_ms: number | null;
 };
+
+export type Game = {
+  id: string;
+  kind: GameKind;
+  state: Record<string, unknown>;
+  turn: string | null;
+  winner: string | null;
+  status: GameStatus;
+  started_by: string;
+  move_count: number;
+  last_move: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GameRecord = { kind: GameKind; user_id: string; wins: number; draws: number };
 
 export type NightlyCheckin = {
   id: string;
@@ -169,4 +192,18 @@ export const ENTRY_KINDS: Record<EntryKind, { icon: string; label: string }> = {
   song: { icon: "🎵", label: "Song" },
   joke: { icon: "😂", label: "Inside joke" },
   place: { icon: "📍", label: "Place" },
+  voice: { icon: "🎙️", label: "Voice note" },
+};
+
+export const GAMES: Record<GameKind, { name: string; blurb: string; icon: string }> = {
+  connect4: {
+    name: "Four in a row",
+    blurb: "Quick. One move each, whenever you pass your phone.",
+    icon: "🔴",
+  },
+  reversi: {
+    name: "Reversi",
+    blurb: "Slower and meaner. The lead changes hands constantly.",
+    icon: "⚫",
+  },
 };

@@ -31,13 +31,24 @@ for us; the last is off by default).
 you think *they* picked. You score when you read them right. 24 questions,
 with a running percentage each.
 
+**Play** — two turn-based games you pick up whenever: **four in a row** and
+**reversi**. No clock, a running series record, and moves that appear on the
+other screen live. Turn order is enforced by the database, not the client.
+
 **Us** — the timeline. Photos, notes, appreciations, milestones, songs (with the
-reason attached), inside jokes, places. Filterable, grouped by month.
+reason attached), inside jokes, places, voice notes. Filterable, grouped by
+month, and everything with media attached is downloadable.
+
+**Map of us** — every place you've pinned, coloured by who pinned it. Tap
+anywhere to drop a pin, or use your current location.
 
 **Rituals**
 
 - **Nightly three** — a high, a low, and one thing about them. The third one is
   written to the timeline, so the appreciation ledger builds itself.
+- **Voice notes** — record up to five minutes and send it now, or schedule it
+  for their morning, this evening, or a week out. A scheduled note is
+  unreadable until it lands; they see only that something is coming.
 - **The jar** — drop a question in for the other, answerable whenever. No
   deadline, no reminder, no expiry.
 - **Time capsules** — letters sealed until a date you choose. They know
@@ -59,6 +70,15 @@ In **SQL Editor**, run in order:
 
 1. `supabase/migrations/0001_init.sql`
 2. `supabase/migrations/0002_seed_prompts.sql`
+3. `supabase/migrations/0003_fixes_and_features.sql`
+
+If the SQL editor returns `Failed to fetch`, that is a browser/network error
+rather than a SQL one — the statement may well have run. Prefer the CLI:
+
+```bash
+npx supabase link --project-ref YOUR_REF
+npx supabase db push
+```
 
 Then in **Authentication → Providers → Email**, turn **"Allow new users to sign
 up" off**. This app is capped at two accounts and there is no reason to leave
@@ -120,7 +140,9 @@ that taps you on the shoulder, and that only works from the home screen.
 - **Next.js 15** (App Router) as an installable PWA
 - **Supabase** — Postgres, Auth, Realtime, Storage
 - **Tailwind v4**, no component library
+- **Leaflet** + OpenStreetMap tiles for the map
 - **web-push** with VAPID, no third-party notification service
+- Game rules are plain functions in `lib/games.ts` — no game engine dependency
 
 ### The parts worth knowing about
 
@@ -144,10 +166,19 @@ stretch, whoever wakes first opens the day and the other joins when their own
 date rolls over. `ensure_daily_question` uses `on conflict do nothing`, so
 whoever gets there first decides the prompt and the other converges on it.
 
+**Turn order is an RLS policy, not client logic.** `only_on_your_turn` lets you
+write to a game row only while `turn = auth.uid()`. A stale tab, a double tap,
+or a hand-crafted request cannot move twice or move out of turn. A finished
+game sets `turn` to null, which makes the row immutable.
+
 **Notifications are deliberately sparse.** Presence changes only interrupt for a
 storm day, a battery under 20, or newly becoming free to talk. `/api/push/send`
 takes no recipient — the server derives the partner from the session, so it
 can't be pointed anywhere else.
+
+**Never show a generic error.** A recursive RLS policy once surfaced as "could
+not save that", which made a schema bug look like a typing bug and cost an
+evening. `<Problem>` prints the database's own message.
 
 ---
 
@@ -156,13 +187,15 @@ can't be pointed anywhere else.
 Ideas that fit the architecture but aren't built yet, roughly in order of
 value-per-effort:
 
-- **Voice notes** with delayed delivery (record now, arrives at their morning
-  alarm). `MediaRecorder` plus the existing storage bucket.
-- **Map of us** — `place` entries already carry `lat`/`lng`; they just need a
-  map view.
-- **Annual wrapped** — a year-end recap generated from the timeline and the
-  know-me scores.
-- **Sync watch** — shared playback position over a realtime channel.
+- **Annual wrapped** — a year-end recap generated from the timeline, the
+  appreciation ledger and the know-me scores.
+- **Sync watch** — shared playback position over a realtime channel. Works
+  cleanly for anything you can host yourself or embed via the YouTube iframe
+  API; DRM services (Netflix, Disney+) cannot be driven programmatically.
 - **Weekly check-in** — a time-boxed structured agenda, harder to design well
   than it looks.
-- **Async games** — chess or a word game, on the same reveal mechanics.
+- **Chess** — the games table already stores arbitrary `jsonb` state and
+  enforces turn order, so this is a board renderer plus `chess.js` for legal
+  moves.
+- **Delivery scheduling for push** — a scheduled voice note currently arrives
+  silently; a Supabase cron job could fire the notification at `deliver_at`.

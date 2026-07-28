@@ -43,6 +43,35 @@ async function downscale(file: File, maxEdge: number, quality: number): Promise<
   );
 }
 
+/**
+ * Saves a stored file to the device.
+ *
+ * Goes through a Blob rather than pointing an <a download> at the signed URL,
+ * because a cross-origin href ignores the `download` attribute and iOS Safari
+ * would simply navigate to the image instead of saving it.
+ */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const { data, error } = await supabaseBrowser().storage.from(BUCKET).download(path);
+  if (error || !data) throw error ?? new Error("Could not download that");
+
+  const href = URL.createObjectURL(data);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  // Give the browser a moment to start the save before revoking.
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+}
+
+/** A stable, human filename for a downloaded entry. */
+export function downloadName(kind: string, occurredOn: string, path: string): string {
+  const ext = path.split(".").pop() || "jpg";
+  return `otherme-${kind}-${occurredOn}.${ext}`;
+}
+
 const urlCache = new Map<string, { url: string; expires: number }>();
 
 /** Signed URL for a private storage object, cached until shortly before expiry. */
