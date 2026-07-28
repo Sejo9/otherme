@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   OtherMe — a small, warm, tactile design system.
+
+   Two accents, one per person: amber and rose. Everything else is a warm
+   neutral so the two of you are the only saturated things on screen.
+   =========================================================================== */
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+}
+
+:root {
+  --bg: #fbf7f3;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f2ebe4;
+  --line: #e5dbd1;
+  --ink: #241d19;
+  --ink-soft: #6b5d53;
+  --ink-faint: #9c8c80;
+
+  --amber: #c77d1e;
+  --amber-soft: #f6e6cf;
+  --rose: #c2557a;
+  --rose-soft: #f8e0e8;
+
+  --shadow: 0 1px 2px rgb(36 29 25 / 0.05), 0 8px 24px -12px rgb(36 29 25 / 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14110f;
+    --bg-raised: #1d1917;
+    --bg-sunken: #0e0c0b;
+    --line: #2e2724;
+    --ink: #f2ebe4;
+    --ink-soft: #b3a396;
+    --ink-faint: #7c6d62;
+
+    --amber: #e8a33d;
+    --amber-soft: #3a2a12;
+    --rose: #e8809f;
+    --rose-soft: #381c26;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -14px rgb(0 0 0 / 0.7);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-raised: var(--bg-raised);
+  --color-sunken: var(--bg-sunken);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-rose: var(--rose);
+  --color-rose-soft: var(--rose-soft);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  background: var(--bg);
+  /* Keeps the safe-area colour right when installed to the home screen. */
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  overscroll-behavior-y: none;
+  min-height: 100%;
+}
+
+/* --- primitives ---------------------------------------------------------- */
+@utility card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow);
+}
+
+@utility pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1;
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+@utility pill-active {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+
+@utility label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+@utility press {
+  transition: transform 100ms ease;
+}
+.press:active {
+  transform: scale(0.96);
+}
+
+/* Accent helpers so a component can be tinted by whose card it is. */
+.accent-amber {
+  --accent: var(--amber);
+  --accent-soft: var(--amber-soft);
+}
+.accent-rose {
+  --accent: var(--rose);
+  --accent-soft: var(--rose-soft);
+}
+
+/* --- motion -------------------------------------------------------------- */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid var(--accent, var(--amber));
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+
+@keyframes glow-sweep {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+.receiving-pulse {
+  animation: glow-sweep 1.2s ease-in-out 3;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise {
+  animation: rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- form elements ------------------------------------------------------- */
+textarea,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+input[type="date"],
+input[type="datetime-local"] {
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 0.875rem;
+  padding: 0.75rem 0.875rem;
+  color: var(--ink);
+  width: 100%;
+  font-size: 1rem; /* 16px stops iOS zooming on focus */
+  outline: none;
+}
+textarea:focus,
+input:focus {
+  border-color: var(--accent, var(--amber));
+}
+::placeholder {
+  color: var(--ink-faint);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 2rem;
+  background: transparent;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 999px;
+  background: var(--accent, var(--amber));
+  border: 3px solid var(--bg-raised);
+  box-shadow: var(--shadow);
+  margin-top: -0.7rem;
+}
+input[type="range"]::-moz-range-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+}
+input[type="range"]::-moz-range-thumb {
+  height: 1.75rem;
+  width: 1.75rem;
+  border: 3px solid var(--bg-raised);
+  border-radius: 999px;
+  background: var(--accent, var(--amber));
+}
