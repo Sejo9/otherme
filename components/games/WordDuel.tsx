@@ -55,22 +55,25 @@ export default function WordDuel({
     const sb = supabaseBrowser();
 
     // Both clients derive the same answer from the date, so whichever gets
-    // here first creates the round and the other simply joins it.
-    const { data: round, error } = await sb
-      .rpc("ensure_word_round", { p_day: day, p_answer: answer })
-      .single<{ id: string }>();
+    // here first creates the round and the other simply joins it. The function
+    // returns a bare uuid — see migration 0005 for why it is not a row.
+    const { data: id, error } = await sb.rpc("ensure_word_round", {
+      p_day: day,
+      p_answer: answer,
+    });
 
-    if (error || !round) {
+    if (error || !id) {
       setProblem(error?.message ?? "Could not start today's round.");
       return;
     }
 
-    setRoundId(round.id);
+    const round = id as string;
+    setRoundId(round);
 
     const { data: rows } = await sb
       .from("word_guesses")
       .select("round_id, user_id, guesses, solved, finished")
-      .eq("round_id", round.id);
+      .eq("round_id", round);
 
     const list = (rows ?? []) as Row[];
     setMine(list.find((r) => r.user_id === me.id) ?? null);

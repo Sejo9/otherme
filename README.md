@@ -83,6 +83,7 @@ In **SQL Editor**, run in order:
 2. `supabase/migrations/0002_seed_prompts.sql`
 3. `supabase/migrations/0003_fixes_and_features.sql`
 4. `supabase/migrations/0004_more_games.sql`
+5. `supabase/migrations/0005_fix_word_round.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:
@@ -192,6 +193,19 @@ can't be pointed anywhere else.
 **Never show a generic error.** A recursive RLS policy once surfaced as "could
 not save that", which made a schema bug look like a typing bug and cost an
 evening. `<Problem>` prints the database's own message.
+
+**The word duel's answer is not secret from the browser, on purpose.** Both
+clients derive it from the date (`wordForDay`) and score guesses locally, which
+keeps play instant and works with a flaky signal. Hiding it properly would mean
+the server picking a random word and scoring every guess over the network — a
+round trip per guess to defend against one of you opening devtools to cheat at
+a word game with the other. Not a trade worth making here.
+
+**Beware `returns table` in PL/pgSQL.** Output columns are in scope as
+variables, so a `returns table (… day date …)` function cannot refer to a
+column also called `day` without qualification — you get `column reference
+"day" is ambiguous`. `language sql` functions do no substitution and are
+unaffected.
 
 ---
 
