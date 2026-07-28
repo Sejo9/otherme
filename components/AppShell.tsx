@@ -43,6 +43,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={tab.href}
                 href={tab.href}
+                // `replace`, so switching tabs does not stack history entries.
+                // Back then means "leave the app", as it does in a native tab
+                // bar, rather than retracing every tab you have ever tapped.
+                // Sub-pages inside a tab still push, so back leaves them.
+                replace
+                prefetch
                 aria-current={active ? "page" : undefined}
                 className="press flex flex-1 flex-col items-center gap-1 py-2.5"
               >

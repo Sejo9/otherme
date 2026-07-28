@@ -4,6 +4,7 @@ import { useState } from "react";
 import { downloadFile, downloadName, useSignedUrl } from "@/lib/media";
 import { prettyDay } from "@/lib/day";
 import { ENTRY_KINDS, type Profile, type TimelineEntry } from "@/lib/types";
+import { useBackDismiss } from "@/components/ui";
 import VoicePlayer from "./VoicePlayer";
 
 export default function EntryCard({
@@ -22,6 +23,9 @@ export default function EntryCard({
   const [saving, setSaving] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const kind = ENTRY_KINDS[entry.kind];
+
+  // Back should close the photo, not leave the timeline.
+  useBackDismiss(lightbox, () => setLightbox(false));
 
   async function save() {
     if (!entry.media_path || saving) return;

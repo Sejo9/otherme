@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Segmented control for sibling pages. The bottom bar only has five slots, so
  * closely-related screens share one slot and switch here.
+ *
+ * These are `Link`s, not anchors — a raw <a> triggers a full document
+ * navigation, which meant re-downloading the app and re-authenticating on
+ * every tap. They also `replace`, because switching between siblings is not a
+ * step you should have to walk back through.
  */
 export function SubNav({
   items,
@@ -18,19 +24,58 @@ export function SubNav({
       {items.map((item) => {
         const active = item.href === current;
         return (
-          <a
+          <Link
             key={item.href}
             href={item.href}
+            replace
+            prefetch
             className={`press flex-1 rounded-full px-3 py-1.5 text-center text-[0.8125rem] font-medium transition-colors ${
               active ? "bg-ink text-bg" : "text-ink-soft"
             }`}
           >
             {item.label}
-          </a>
+          </Link>
         );
       })}
     </div>
   );
+}
+
+/**
+ * Makes the hardware/browser back gesture close an overlay instead of leaving
+ * the page — what every native app does, and what people expect from anything
+ * installed to a home screen.
+ *
+ * Opening pushes a throwaway history entry; back pops it and closes. Closing
+ * by any other means removes the entry again so history stays clean.
+ */
+export function useBackDismiss(open: boolean, onClose: () => void) {
+  const latest = useRef(onClose);
+  latest.current = onClose;
+  const pushed = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    window.history.pushState({ overlay: true }, "");
+    pushed.current = true;
+
+    const onPop = () => {
+      pushed.current = false; // the entry is already gone
+      latest.current();
+    };
+
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // Closed via the UI rather than the back gesture: drop our entry so the
+      // next back press does not simply reopen nothing.
+      if (pushed.current) {
+        pushed.current = false;
+        window.history.back();
+      }
+    };
+  }, [open]);
 }
 
 export function Section({
@@ -91,6 +136,8 @@ export function Sheet({
   title?: string;
   children: React.ReactNode;
 }) {
+  useBackDismiss(open, onClose);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();

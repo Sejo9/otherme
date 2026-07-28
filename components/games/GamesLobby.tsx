@@ -8,7 +8,7 @@ import { ago } from "@/lib/day";
 import { connect4Initial, reversiInitial } from "@/lib/games";
 import { checkersInitial } from "@/lib/checkers";
 import { GAMES, type Game, type GameKind, type GameRecord, type Profile } from "@/lib/types";
-import { Empty, Problem, Section, SubNav } from "@/components/ui";
+import { Empty, Problem, Section, SubNav, useBackDismiss } from "@/components/ui";
 import GameBoard from "./GameBoard";
 
 export default function GamesLobby({
@@ -83,6 +83,9 @@ export default function GamesLobby({
     setOpenId((data as Game).id);
     load();
   }
+
+  // An open board is a view, not a route, so wire back to it by hand.
+  useBackDismiss(!!openId, () => setOpenId(null));
 
   const open = games.find((g) => g.id === openId);
   if (open) {

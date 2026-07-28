@@ -101,6 +101,13 @@ policy on `profiles` refuses a third.)
 Create your two accounts by hand in **Authentication → Users → Add user**, with
 "Auto Confirm User" ticked.
 
+Finally — and this one is worth doing, because it is the difference between a
+snappy app and a sluggish one — go to **Authentication → JWT Keys** and migrate
+to **asymmetric signing keys**. The app verifies your session by checking the
+JWT signature locally against a cached key set. With a legacy shared secret
+that is impossible, so every single request has to ask the auth server who you
+are, adding a network round trip to every navigation and every prefetch.
+
 ### 2. Environment
 
 ```bash
@@ -200,6 +207,21 @@ keeps play instant and works with a flaky signal. Hiding it properly would mean
 the server picking a random word and scoring every guess over the network — a
 round trip per guess to defend against one of you opening devtools to cheat at
 a word game with the other. Not a trade worth making here.
+
+**Navigation is tuned for a tab bar, not a website.** Three things make it feel
+native rather than webby:
+
+- Identity is established with `getClaims()` (local JWT verification), not
+  `getUser()` (a network round trip), and `requireSession()` is wrapped in
+  React `cache()` so a layout and its page share one result.
+- `experimental.staleTimes` keeps dynamic pages in the client router cache.
+  Next's default for dynamic routes is zero seconds, which means every tab
+  switch refetches from the server. Realtime keeps contents fresh anyway.
+- Tabs and sub-navs `replace` rather than push, so back leaves the app instead
+  of retracing every tab you ever tapped, and `useBackDismiss` makes the back
+  gesture close sheets and photos first.
+
+Anything reached *inside* a tab still pushes, so back behaves normally there.
 
 **Beware `returns table` in PL/pgSQL.** Output columns are in scope as
 variables, so a `returns table (… day date …)` function cannot refer to a
