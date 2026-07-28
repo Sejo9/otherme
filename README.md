@@ -84,6 +84,7 @@ In **SQL Editor**, run in order:
 3. `supabase/migrations/0003_fixes_and_features.sql`
 4. `supabase/migrations/0004_more_games.sql`
 5. `supabase/migrations/0005_fix_word_round.sql`
+6. `supabase/migrations/0006_today_snapshot.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:
@@ -222,6 +223,20 @@ native rather than webby:
   gesture close sheets and photos first.
 
 Anything reached *inside* a tab still pushes, so back behaves normally there.
+
+**Today renders complete, with nothing fetched afterwards.** It used to
+assemble itself from five browser requests in two waterfalls, which is why it
+flashed skeletons even once navigation was fast. `today_snapshot` returns the
+question status, the know-me status, the goodnights, today's photos and the
+on-this-day entries in one call, made during the server render alongside
+presence and pulses — three parallel requests, one round trip.
+
+That requires the server to know what "today" means to you, which it takes from
+`profiles.timezone`. `AppShell` corrects that column whenever your device
+disagrees with it, so it follows you if you travel. If the stored zone is
+nonetheless stale when a page renders — you flew and this is the first load, or
+midnight passed while the tab sat open — the client notices the mismatch and
+refetches. That path is the exception, not the default.
 
 **Beware `returns table` in PL/pgSQL.** Output columns are in scope as
 variables, so a `returns table (… day date …)` function cannot refer to a

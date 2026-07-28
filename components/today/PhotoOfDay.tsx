@@ -7,6 +7,7 @@ import { notifyPartner } from "@/lib/push";
 import { localDay } from "@/lib/day";
 import type { Profile, TimelineEntry } from "@/lib/types";
 import { Flash, Sheet, useFlash } from "@/components/ui";
+import { dayIsStale, type TodaySnapshot } from "./types";
 
 function Slot({
   entry,
@@ -69,12 +70,21 @@ function Slot({
 export default function PhotoOfDay({
   me,
   partner,
+  serverDay,
+  snapshot,
 }: {
   me: Profile;
   partner: Profile | null;
+  serverDay: string;
+  snapshot: TodaySnapshot | null;
 }) {
-  const [mine, setMine] = useState<TimelineEntry | null>(null);
-  const [theirs, setTheirs] = useState<TimelineEntry | null>(null);
+  const initial = snapshot?.photos ?? [];
+  const [mine, setMine] = useState<TimelineEntry | null>(
+    initial.find((p) => p.author_id === me.id) ?? null
+  );
+  const [theirs, setTheirs] = useState<TimelineEntry | null>(
+    initial.find((p) => p.author_id !== me.id) ?? null
+  );
   const [busy, setBusy] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [flash, setFlash] = useFlash();
@@ -85,16 +95,23 @@ export default function PhotoOfDay({
   // same two choices work everywhere.
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
-  const day = localDay();
+
+  // The server already rendered today's photos; this only matters if its idea
+  // of "today" was stale (you travelled, or midnight passed).
+  const [day, setDay] = useState(serverDay);
 
   useEffect(() => {
+    const clientDay = localDay();
+    if (!dayIsStale(serverDay, clientDay)) return;
+
+    setDay(clientDay);
     let cancelled = false;
 
     supabaseBrowser()
       .from("timeline_entries")
       .select("*")
       .eq("kind", "photo")
-      .eq("occurred_on", day)
+      .eq("occurred_on", clientDay)
       .then(({ data }) => {
         if (cancelled) return;
         const rows = (data ?? []) as TimelineEntry[];
@@ -102,6 +119,12 @@ export default function PhotoOfDay({
         setTheirs(rows.find((r) => r.author_id !== me.id) ?? null);
       });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [serverDay, me.id]);
+
+  useEffect(() => {
     const channel = supabaseBrowser()
       .channel("photo-of-day")
       .on(
@@ -117,7 +140,6 @@ export default function PhotoOfDay({
       .subscribe();
 
     return () => {
-      cancelled = true;
       supabaseBrowser().removeChannel(channel);
     };
   }, [me.id, day]);

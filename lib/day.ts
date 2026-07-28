@@ -13,6 +13,28 @@ export function localDay(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * The same `YYYY-MM-DD`, but for an arbitrary IANA timezone.
+ *
+ * The server has no idea what time it is where you are, so it uses the zone
+ * recorded on your profile. That is what lets Today be rendered complete on
+ * the server rather than assembled by the browser afterwards. `en-CA` is used
+ * purely because its short date format is already ISO order.
+ */
+export function dayInTimezone(timezone: string, at: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(at);
+  } catch {
+    // An unknown or corrupted zone should degrade, not throw.
+    return localDay(at);
+  }
+}
+
 export function parseDay(day: string): Date {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(y, m - 1, d);

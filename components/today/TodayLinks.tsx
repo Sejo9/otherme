@@ -1,20 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
 import { localDay } from "@/lib/day";
 import type { Profile } from "@/lib/types";
 import { Flash, useFlash } from "@/components/ui";
+import { dayIsStale, type TodaySnapshot } from "./types";
 
-type Status = "loading" | "waiting-on-you" | "waiting-on-them" | "done";
+type Status = "waiting-on-you" | "waiting-on-them" | "done";
 
-const COPY: Record<Exclude<Status, "loading">, { note: string; cta: string }> = {
+const COPY: Record<Status, { note: string; cta: string }> = {
   "waiting-on-you": { note: "Your turn", cta: "Answer" },
   "waiting-on-them": { note: "Answered — waiting for them", cta: "Sealed" },
   done: { note: "Both in", cta: "Open" },
 };
+
+/** RLS only ever tells you whether *you* have gone; that is the point. */
+function statusOf(mine: boolean, both: boolean): Status {
+  if (!mine) return "waiting-on-you";
+  return both ? "done" : "waiting-on-them";
+}
 
 function Row({
   href,
@@ -27,17 +34,18 @@ function Row({
   title: string;
   status: Status;
 }) {
-  const copy = status === "loading" ? null : COPY[status];
+  const copy = COPY[status];
 
   return (
     <Link
       href={href}
+      prefetch
       className="press flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0"
     >
       <span className="w-5 text-center text-base">{icon}</span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{title}</p>
-        <p className="text-[0.75rem] text-ink-faint">{copy?.note ?? "…"}</p>
+        <p className="text-[0.75rem] text-ink-faint">{copy.note}</p>
       </div>
       <span
         className={`shrink-0 rounded-full px-2.5 py-1 text-[0.6875rem] font-medium ${
@@ -46,7 +54,7 @@ function Row({
             : "border border-line text-ink-faint"
         }`}
       >
-        {copy?.cta ?? "…"}
+        {copy.cta}
       </span>
     </Link>
   );
@@ -55,64 +63,51 @@ function Row({
 export default function TodayLinks({
   me,
   partner,
+  serverDay,
+  snapshot,
 }: {
   me: Profile;
   partner: Profile | null;
+  serverDay: string;
+  snapshot: TodaySnapshot | null;
 }) {
-  const [question, setQuestion] = useState<Status>("loading");
-  const [knowMe, setKnowMe] = useState<Status>("loading");
-  const [goodnight, setGoodnight] = useState<{ me: boolean; them: boolean }>({
-    me: false,
-    them: false,
-  });
+  const [question, setQuestion] = useState<Status>(
+    statusOf(snapshot?.question.mine ?? false, snapshot?.question.both ?? false)
+  );
+  const [knowMe, setKnowMe] = useState<Status>(
+    statusOf(snapshot?.know_me.mine ?? false, snapshot?.know_me.both ?? false)
+  );
+  const [goodnight, setGoodnight] = useState(
+    snapshot?.goodnight ?? { me: false, them: false }
+  );
   const [flash, setFlash] = useFlash();
-  const day = localDay();
+
+  // Only used if the server's idea of "today" turns out to be wrong.
+  const [day, setDay] = useState(serverDay);
+
+  const refresh = useCallback(async (forDay: string) => {
+    const { data } = await supabaseBrowser().rpc("today_snapshot", { p_day: forDay });
+    const fresh = data as TodaySnapshot | null;
+    if (!fresh) return;
+
+    setQuestion(statusOf(fresh.question.mine, fresh.question.both));
+    setKnowMe(statusOf(fresh.know_me.mine, fresh.know_me.both));
+    setGoodnight(fresh.goodnight);
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const clientDay = localDay();
+
+    // The common path does nothing here: the server already rendered the right
+    // day and the right statuses.
+    if (dayIsStale(serverDay, clientDay)) {
+      setDay(clientDay);
+      refresh(clientDay);
+    }
+  }, [serverDay, refresh]);
+
+  useEffect(() => {
     const sb = supabaseBrowser();
-
-    async function load() {
-      const [q, k, g] = await Promise.all([
-        sb.rpc("ensure_daily_question", { p_day: day }).single(),
-        sb.rpc("ensure_know_me_round", { p_day: day }).single(),
-        sb.from("goodnights").select("*").eq("day", day),
-      ]);
-      if (cancelled) return;
-
-      const qid = (q.data as { id?: string } | null)?.id;
-      const kid = (k.data as { id?: string } | null)?.id;
-
-      const [qa, kr] = await Promise.all([
-        qid
-          ? sb.from("question_answers").select("user_id").eq("question_id", qid)
-          : Promise.resolve({ data: [] as { user_id: string }[] }),
-        kid
-          ? sb.from("know_me_responses").select("user_id").eq("round_id", kid)
-          : Promise.resolve({ data: [] as { user_id: string }[] }),
-      ]);
-      if (cancelled) return;
-
-      setQuestion(statusOf((qa.data ?? []).map((r) => r.user_id)));
-      setKnowMe(statusOf((kr.data ?? []).map((r) => r.user_id)));
-
-      const nights = (g.data ?? []) as { user_id: string }[];
-      setGoodnight({
-        me: nights.some((n) => n.user_id === me.id),
-        them: nights.some((n) => n.user_id !== me.id),
-      });
-    }
-
-    // RLS hides the partner's row until you have answered, so "did they
-    // answer?" can only be inferred once you have. Before that it is honestly
-    // unknown, which is the point.
-    function statusOf(userIds: string[]): Status {
-      const mine = userIds.includes(me.id);
-      if (!mine) return "waiting-on-you";
-      return userIds.length >= 2 ? "done" : "waiting-on-them";
-    }
-
-    load();
 
     const channel = sb
       .channel("today-links")
@@ -127,19 +122,22 @@ export default function TodayLinks({
           );
         }
       )
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "question_answers" }, () =>
-        load()
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "question_answers" },
+        () => refresh(day)
       )
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "know_me_responses" }, () =>
-        load()
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "know_me_responses" },
+        () => refresh(day)
       )
       .subscribe();
 
     return () => {
-      cancelled = true;
       sb.removeChannel(channel);
     };
-  }, [me.id, day]);
+  }, [me.id, day, refresh]);
 
   async function pressGoodnight() {
     if (goodnight.me) return;
@@ -169,13 +167,7 @@ export default function TodayLinks({
       <button
         onClick={pressGoodnight}
         disabled={goodnight.me}
-        className={`press mt-3 w-full rounded-[1.25rem] border px-4 py-4 text-center transition-colors ${
-          bothIn
-            ? "border-transparent bg-sunken"
-            : goodnight.me
-              ? "border-line bg-raised"
-              : "border-line bg-raised"
-        }`}
+        className="press mt-3 w-full rounded-[1.25rem] border border-line bg-raised px-4 py-4 text-center"
       >
         <p className="text-sm font-medium">
           {bothIn

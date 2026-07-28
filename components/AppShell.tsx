@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
+import { supabaseBrowser } from "@/lib/supabase/client";
 
 const TABS = [
   { href: "/", label: "Today", icon: "◉" },
@@ -12,7 +13,15 @@ const TABS = [
   { href: "/rituals", label: "Rituals", icon: "☾" },
 ];
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  meId,
+  storedTimezone,
+}: {
+  children: React.ReactNode;
+  meId: string;
+  storedTimezone: string;
+}) {
   const pathname = usePathname();
 
   // Register the service worker once, on first mount of any authenticated page.
@@ -21,6 +30,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
     }
   }, []);
+
+  // The server works out what "today" means from the timezone on your profile,
+  // so it has to follow you. If you fly somewhere, the first page you open
+  // corrects it and every render after that is right.
+  useEffect(() => {
+    const actual = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!actual || actual === storedTimezone) return;
+
+    supabaseBrowser()
+      .from("profiles")
+      .update({ timezone: actual })
+      .eq("id", meId)
+      .then(() => {});
+  }, [meId, storedTimezone]);
 
   return (
     <div className="min-h-dvh">
