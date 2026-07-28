@@ -160,6 +160,7 @@ export default function WordDuel({
           { href: "/games", label: "Games" },
           { href: "/knowme", label: "Know me" },
           { href: "/words", label: "Word" },
+          { href: "/21", label: "21" },
         ]}
       />
 

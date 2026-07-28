@@ -41,6 +41,17 @@ checkmate detection, a captured-piece tray and a move list. Checkers enforces
 compulsory captures and multi-jumps. Both boards flip so your own pieces are
 always nearest you.
 
+**21 Questions** — a round of 21 couples questions, drawn from a pool of 140
+written for people who already have a history together. Same mutual reveal as
+everywhere else.
+
+Skipping is **negotiated, not unilateral**. Asking to skip does not skip the
+question; it proposes it. Your partner is told, and can agree — in which case
+the question is closed with nothing revealed — or decline, in which case they
+answer and you are asked to answer after all. Their answer stays sealed until
+you do, so a skip can never become a way of reading their answer without
+giving yours.
+
 **Word duel** — one hidden five-letter word a day. You both attack it
 independently, and their board unlocks when you have both finished. Not
 turn-based, so it lives in its own tables rather than being forced into the
@@ -85,6 +96,8 @@ In **SQL Editor**, run in order:
 4. `supabase/migrations/0004_more_games.sql`
 5. `supabase/migrations/0005_fix_word_round.sql`
 6. `supabase/migrations/0006_today_snapshot.sql`
+7. `supabase/migrations/0007_twenty_one.sql`
+8. `supabase/migrations/0008_seed_twenty_one.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:

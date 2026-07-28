@@ -128,6 +128,7 @@ export default function KnowMe({
           { href: "/games", label: "Games" },
           { href: "/knowme", label: "Know me" },
           { href: "/words", label: "Word" },
+          { href: "/21", label: "21" },
         ]}
       />
 
