@@ -12,7 +12,7 @@ export type EntryKind =
   | "place"
   | "voice";
 
-export type GameKind = "connect4" | "reversi";
+export type GameKind = "connect4" | "reversi" | "chess" | "checkers";
 export type GameStatus = "active" | "won" | "draw" | "resigned";
 
 export type Profile = {
@@ -198,12 +198,22 @@ export const ENTRY_KINDS: Record<EntryKind, { icon: string; label: string }> = {
 export const GAMES: Record<GameKind, { name: string; blurb: string; icon: string }> = {
   connect4: {
     name: "Four in a row",
-    blurb: "Quick. One move each, whenever you pass your phone.",
+    blurb: "Quick. A move whenever you pick up your phone.",
     icon: "🔴",
+  },
+  checkers: {
+    name: "Checkers",
+    blurb: "Captures are compulsory, which is what makes it a game.",
+    icon: "⛀",
   },
   reversi: {
     name: "Reversi",
     blurb: "Slower and meaner. The lead changes hands constantly.",
     icon: "⚫",
+  },
+  chess: {
+    name: "Chess",
+    blurb: "The long one. Play a move a day for a fortnight.",
+    icon: "♞",
   },
 };

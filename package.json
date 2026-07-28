@@ -13,6 +13,7 @@
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
+    "chess.js": "^1.4.0",
     "date-fns": "^4.1.0",
     "leaflet": "^1.9.4",
     "motion": "^11.15.0",

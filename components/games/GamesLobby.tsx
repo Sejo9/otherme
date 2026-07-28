@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Chess } from "chess.js";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
 import { ago } from "@/lib/day";
 import { connect4Initial, reversiInitial } from "@/lib/games";
+import { checkersInitial } from "@/lib/checkers";
 import { GAMES, type Game, type GameKind, type GameRecord, type Profile } from "@/lib/types";
 import { Empty, Problem, Section, SubNav } from "@/components/ui";
 import GameBoard from "./GameBoard";
@@ -50,11 +52,14 @@ export default function GamesLobby({
     setStarting(true);
     setProblem(null);
 
-    // Whoever starts takes seat 1 and moves first.
-    const state = {
-      board: kind === "connect4" ? connect4Initial() : reversiInitial(),
-      seats: { 1: me.id, 2: partner.id },
-    };
+    // Whoever starts takes seat 1 and moves first — white, in chess.
+    const seats = { 1: me.id, 2: partner.id };
+    const state =
+      kind === "chess"
+        ? { fen: new Chess().fen(), history: [], seats }
+        : kind === "checkers"
+          ? { board: checkersInitial(), chain: null, seats }
+          : { board: kind === "connect4" ? connect4Initial() : reversiInitial(), seats };
 
     const { data, error } = await supabaseBrowser()
       .from("games")
@@ -109,6 +114,7 @@ export default function GamesLobby({
         items={[
           { href: "/games", label: "Games" },
           { href: "/knowme", label: "Know me" },
+          { href: "/words", label: "Word" },
         ]}
       />
 

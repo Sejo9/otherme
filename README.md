@@ -31,9 +31,20 @@ for us; the last is off by default).
 you think *they* picked. You score when you read them right. 24 questions,
 with a running percentage each.
 
-**Play** — two turn-based games you pick up whenever: **four in a row** and
-**reversi**. No clock, a running series record, and moves that appear on the
-other screen live. Turn order is enforced by the database, not the client.
+**Play** — four turn-based games you pick up whenever: **four in a row**,
+**checkers**, **reversi** and **chess**. No clock, a running series record, and
+moves that appear on the other screen live. Turn order is enforced by the
+database, not the client.
+
+Chess has legal-move highlighting, castling, en passant, promotion, check and
+checkmate detection, a captured-piece tray and a move list. Checkers enforces
+compulsory captures and multi-jumps. Both boards flip so your own pieces are
+always nearest you.
+
+**Word duel** — one hidden five-letter word a day. You both attack it
+independently, and their board unlocks when you have both finished. Not
+turn-based, so it lives in its own tables rather than being forced into the
+turn-enforced `games` model.
 
 **Us** — the timeline. Photos, notes, appreciations, milestones, songs (with the
 reason attached), inside jokes, places, voice notes. Filterable, grouped by
@@ -71,6 +82,7 @@ In **SQL Editor**, run in order:
 1. `supabase/migrations/0001_init.sql`
 2. `supabase/migrations/0002_seed_prompts.sql`
 3. `supabase/migrations/0003_fixes_and_features.sql`
+4. `supabase/migrations/0004_more_games.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:
@@ -142,7 +154,8 @@ that taps you on the shoulder, and that only works from the home screen.
 - **Tailwind v4**, no component library
 - **Leaflet** + OpenStreetMap tiles for the map
 - **web-push** with VAPID, no third-party notification service
-- Game rules are plain functions in `lib/games.ts` — no game engine dependency
+- **chess.js** for chess legality; everything else (`lib/games.ts`,
+  `lib/checkers.ts`, `lib/words.ts`) is plain functions with no dependency
 
 ### The parts worth knowing about
 
@@ -194,8 +207,7 @@ value-per-effort:
   API; DRM services (Netflix, Disney+) cannot be driven programmatically.
 - **Weekly check-in** — a time-boxed structured agenda, harder to design well
   than it looks.
-- **Chess** — the games table already stores arbitrary `jsonb` state and
-  enforces turn order, so this is a board renderer plus `chess.js` for legal
-  moves.
+- **Sync listen** — more tractable than sync watch, because Spotify publishes a
+  playback-control API and Netflix publishes nothing. See the notes below.
 - **Delivery scheduling for push** — a scheduled voice note currently arrives
   silently; a Supabase cron job could fire the notification at `deliver_at`.
