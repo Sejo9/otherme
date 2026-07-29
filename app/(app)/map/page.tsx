@@ -29,6 +29,7 @@ export default async function MapPage() {
         items={[
           { href: "/timeline", label: "Timeline" },
           { href: "/map", label: "Map" },
+          { href: "/listen", label: "Listen" },
         ]}
       />
 

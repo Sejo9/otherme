@@ -64,6 +64,15 @@ month, and everything with media attached is downloadable.
 **Map of us** — every place you've pinned, coloured by who pinned it. Tap
 anywhere to drop a pin, or use your current location.
 
+**Listen together** — a shared listening room. Queue a YouTube link or upload a
+file, press play, and it starts on both phones at the same moment. Whoever
+opens it late lands in the right place rather than at the start.
+
+Reactions are pinned to a **position in the track**, not to a moment in time,
+so they accumulate: play a song again next year and what you both said the
+first time surfaces at the same points, dated. That is the actual product —
+synced playback is just what makes it possible.
+
 **Rituals**
 
 - **Nightly three** — a high, a low, and one thing about them. The third one is
@@ -98,6 +107,7 @@ In **SQL Editor**, run in order:
 6. `supabase/migrations/0006_today_snapshot.sql`
 7. `supabase/migrations/0007_twenty_one.sql`
 8. `supabase/migrations/0008_seed_twenty_one.sql`
+9. `supabase/migrations/0009_listen_together.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:
@@ -251,6 +261,20 @@ nonetheless stale when a page renders — you flew and this is the first load, o
 midnight passed while the tab sat open — the client notices the mismatch and
 refetches. That path is the exception, not the default.
 
+**Synced playback is one anchored row, not a heartbeat.** `listen_room` stores
+"at this server time, playback was here, and it was/wasn't playing". Every
+client derives its own target from that, so a write only happens when someone
+actually acts, and a client that joins late, backgrounds, or drops its
+connection is correct again the instant it reads the row. The anchor is stamped
+by the database and `listen_snapshot` returns the server clock, so the two
+phones never have to agree about what time it is.
+
+Drift correction is deliberately relaxed — under 750ms it does nothing. You are
+on separate speakers in separate rooms, so nobody hears both streams at once
+and small offsets are inaudible. Correcting harder than that produces audible
+stutter and buys nothing. HTML audio closes a moderate gap by nudging
+`playbackRate`; YouTube's rates are too coarse for that, so it seeks.
+
 **Beware `returns table` in PL/pgSQL.** Output columns are in scope as
 variables, so a `returns table (… day date …)` function cannot refer to a
 column also called `day` without qualification — you get `column reference
@@ -271,7 +295,17 @@ value-per-effort:
   API; DRM services (Netflix, Disney+) cannot be driven programmatically.
 - **Weekly check-in** — a time-boxed structured agenda, harder to design well
   than it looks.
-- **Sync listen** — more tractable than sync watch, because Spotify publishes a
-  playback-control API and Netflix publishes nothing. See the notes below.
+- **Spotify as a listen source.** The room is source-agnostic already
+  (`listen_room.track_ref`), so this is an OAuth flow plus a control adapter,
+  not a redesign. It needs a registered Spotify app, per-account authorisation
+  with `user-modify-playback-state` and `user-read-playback-state`, token
+  storage and refresh, and **Premium on both accounts** — the playback
+  endpoints are Premium-only. Drive the *Web API* against each person's active
+  device rather than the Web Playback SDK: the SDK needs Widevine and is
+  effectively broken on iOS Safari, which is fatal for a phone-first app.
+- **Sync watch** — same engine as listening. Works for anything you host and
+  for YouTube via the iframe API. Does *not* work for Netflix, Disney+, HBO or
+  Prime: those players are DRM-protected and expose no scriptable position, so
+  there is nothing to synchronise against.
 - **Delivery scheduling for push** — a scheduled voice note currently arrives
   silently; a Supabase cron job could fire the notification at `deliver_at`.
