@@ -57,8 +57,14 @@ export type KindConfig = {
   heading: string;
   emptyTitle: string;
   emptyBody: string;
-  /** Video fills the screen; audio hides the frame entirely. */
-  showsPicture: boolean;
+  /**
+   * `full` gives video the whole frame. `compact` shrinks it to a strip.
+   *
+   * Note there is no "hidden" option, deliberately: iOS refuses to emit audio
+   * from a media element that is not rendered, so a `display: none` YouTube
+   * iframe plays silently. The player always occupies real pixels.
+   */
+  picture: "full" | "compact";
   tolerance: Tolerance;
   reactions: readonly string[];
   addPlaceholder: string;
@@ -72,7 +78,7 @@ export const KINDS: Record<SyncKind, KindConfig> = {
     emptyTitle: "Nothing playing",
     emptyBody:
       "Put a song on and it starts on both your phones at the same moment. Whoever is not here yet will land in the right place when they open it.",
-    showsPicture: false,
+    picture: "compact",
     tolerance: AUDIO_TOLERANCE,
     reactions: ["❤️", "🔥", "🥹", "😂", "🕺", "🎯"],
     addPlaceholder: "Paste a YouTube link",
@@ -84,7 +90,7 @@ export const KINDS: Record<SyncKind, KindConfig> = {
     emptyTitle: "Nothing on",
     emptyBody:
       "Queue something and press play — it starts on both screens at once. Anything you can only stream elsewhere still belongs on the watchlist below.",
-    showsPicture: true,
+    picture: "full",
     tolerance: VIDEO_TOLERANCE,
     reactions: ["😂", "😱", "❤️", "👀", "🤯", "😴"],
     addPlaceholder: "Paste a YouTube link",

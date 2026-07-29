@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
 import { clock, correctionFor, measureClockOffset, targetPosition } from "@/lib/sync";
-import { YT_STATE, loadYouTubeApi, type YTPlayer } from "@/lib/youtube";
+import { YT_STATE, callPlayer, loadYouTubeApi, type YTPlayer } from "@/lib/youtube";
 import type { Profile } from "@/lib/types";
 import { Flash, Problem, Section, useFlash } from "@/components/ui";
 import AddTrack from "./AddTrack";
@@ -41,11 +41,14 @@ export default function SyncRoom({
   const mount = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const player = useRef<YTPlayer | null>(null);
-  const media = useRef<HTMLVideoElement>(null);
+  const media = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const loadedRef = useRef<string | null>(null);
 
   const room = snapshot?.room ?? null;
   const isYouTube = room?.source === "youtube";
+  // Pure audio can safely live in an <audio> element, which iOS *will* play
+  // without it being visible. Only iframes and <video> need real pixels.
+  const isBareAudio = kind === "listen" && room?.source === "upload";
 
   // --- loading --------------------------------------------------------------
   const load = useCallback(async () => {
@@ -98,7 +101,6 @@ export default function SyncRoom({
               ? { ...prev, reactions: [...prev.reactions, reaction] }
               : prev
           );
-          // Anything arriving live floats over the picture for a moment.
           setFloating((prev) => [...prev, reaction]);
           setTimeout(
             () => setFloating((prev) => prev.filter((r) => r.id !== reaction.id)),
@@ -131,7 +133,7 @@ export default function SyncRoom({
         if (player.current) {
           if (loadedRef.current !== room.track_ref) {
             loadedRef.current = room.track_ref;
-            player.current.cueVideoById(room.track_ref!);
+            callPlayer(player.current, "cueVideoById", room.track_ref!);
           }
           return;
         }
@@ -147,10 +149,17 @@ export default function SyncRoom({
             disablekb: 1,
           },
           events: {
-            onReady: () => setReady(true),
+            onReady: (e) => {
+              setReady(true);
+              callPlayer(e.target, "setVolume", 100);
+            },
             onStateChange: (e) => {
               if (e.data === YT_STATE.ENDED) advanceRef.current();
-              if (e.data === YT_STATE.PLAYING) setNeedsTap(false);
+              if (e.data === YT_STATE.PLAYING) {
+                // Playing but muted means the browser allowed it only on the
+                // condition that it stays silent — a tap is needed.
+                setNeedsTap(callPlayer(e.target, "isMuted") === true);
+              }
             },
             onError: () =>
               setProblem("That video will not play embedded. Try a different link."),
@@ -166,61 +175,91 @@ export default function SyncRoom({
 
   useEffect(() => {
     return () => {
-      player.current?.destroy();
+      callPlayer(player.current, "destroy");
       player.current = null;
     };
   }, []);
+
+  /**
+   * Starts playback *synchronously*, so it inherits the user gesture that
+   * triggered it.
+   *
+   * This is the whole reason iOS was silent: the tick loop started playback
+   * after an awaited round trip, by which point the gesture had expired, and
+   * WebKit permits ungestured playback only while muted.
+   */
+  const primePlayback = useCallback(() => {
+    if (isYouTube) {
+      callPlayer(player.current, "unMute");
+      callPlayer(player.current, "setVolume", 100);
+      callPlayer(player.current, "playVideo");
+    } else if (media.current) {
+      media.current.muted = false;
+      media.current.volume = 1;
+      media.current.play().catch(() => setNeedsTap(true));
+    }
+    setNeedsTap(false);
+  }, [isYouTube]);
 
   // --- keeping in step ------------------------------------------------------
   useEffect(() => {
     if (!room?.track_ref) return;
 
     const tick = () => {
-      const element = isYouTube ? player.current : media.current;
-      if (!element) return;
+      try {
+        const element = isYouTube ? player.current : media.current;
+        if (!element) return;
 
-      const target = targetPosition(room, offset, room.duration_ms);
-      const actual = isYouTube
-        ? (player.current!.getCurrentTime() ?? 0) * 1000
-        : (media.current!.currentTime ?? 0) * 1000;
+        const target = targetPosition(room, offset, room.duration_ms);
+        const actual = isYouTube
+          ? (callPlayer(player.current, "getCurrentTime") ?? 0) * 1000
+          : (media.current!.currentTime || 0) * 1000;
 
-      setPosition(actual);
+        setPosition(actual);
 
-      const total = isYouTube
-        ? (player.current!.getDuration() ?? 0) * 1000
-        : (media.current!.duration ?? 0) * 1000;
-      if (Number.isFinite(total) && total > 0) setDuration(total);
+        const total = isYouTube
+          ? (callPlayer(player.current, "getDuration") ?? 0) * 1000
+          : (media.current!.duration || 0) * 1000;
+        if (Number.isFinite(total) && total > 0) setDuration(total);
 
-      if (room.playing) {
-        // YouTube's playback rates are too coarse to nudge with, so it seeks.
-        const correction = correctionFor(actual, target, !isYouTube, config.tolerance);
+        if (room.playing) {
+          const correction = correctionFor(actual, target, !isYouTube, config.tolerance);
 
-        if (correction.kind === "seek") {
-          if (isYouTube) player.current!.seekTo(correction.to / 1000, true);
-          else media.current!.currentTime = correction.to / 1000;
-        } else if (correction.kind === "rate" && media.current) {
-          media.current.playbackRate = correction.rate;
-        } else if (media.current) {
-          media.current.playbackRate = 1;
-        }
-
-        if (isYouTube) {
-          const state = player.current!.getPlayerState();
-          if (state !== YT_STATE.PLAYING && state !== YT_STATE.BUFFERING) {
-            player.current!.playVideo();
-            if (state === YT_STATE.UNSTARTED || state === YT_STATE.CUED) setNeedsTap(true);
+          if (correction.kind === "seek") {
+            if (isYouTube) callPlayer(player.current, "seekTo", correction.to / 1000, true);
+            else media.current!.currentTime = correction.to / 1000;
+          } else if (correction.kind === "rate" && media.current) {
+            media.current.playbackRate = correction.rate;
+          } else if (media.current) {
+            media.current.playbackRate = 1;
           }
-        } else if (media.current!.paused) {
-          media.current!.play().catch(() => setNeedsTap(true));
-        }
-      } else {
-        if (isYouTube) {
-          if (player.current!.getPlayerState() === YT_STATE.PLAYING) {
-            player.current!.pauseVideo();
+
+          if (isYouTube) {
+            const state = callPlayer(player.current, "getPlayerState");
+            if (state !== YT_STATE.PLAYING && state !== YT_STATE.BUFFERING) {
+              callPlayer(player.current, "playVideo");
+              callPlayer(player.current, "unMute");
+              if (state === YT_STATE.UNSTARTED || state === YT_STATE.CUED) setNeedsTap(true);
+            } else if (callPlayer(player.current, "isMuted") === true) {
+              // Rolling, but silent — the partner started it and this device
+              // never got a gesture.
+              callPlayer(player.current, "unMute");
+              if (callPlayer(player.current, "isMuted") === true) setNeedsTap(true);
+            }
+          } else if (media.current!.paused) {
+            media.current!.play().catch(() => setNeedsTap(true));
           }
-        } else if (!media.current!.paused) {
-          media.current!.pause();
+        } else {
+          if (isYouTube) {
+            if (callPlayer(player.current, "getPlayerState") === YT_STATE.PLAYING) {
+              callPlayer(player.current, "pauseVideo");
+            }
+          } else if (!media.current!.paused) {
+            media.current!.pause();
+          }
         }
+      } catch {
+        // Never let a player hiccup escape into React.
       }
     };
 
@@ -229,7 +268,6 @@ export default function SyncRoom({
     return () => clearInterval(timer);
   }, [room, offset, isYouTube, config.tolerance]);
 
-  // Smooth progress between sync checks.
   useEffect(() => {
     if (!room?.playing) return;
     const timer = setInterval(() => setPosition((p) => p + 250), 250);
@@ -239,7 +277,6 @@ export default function SyncRoom({
   // --- controls -------------------------------------------------------------
   const control = useCallback(
     async (playing: boolean, positionMs: number) => {
-      setNeedsTap(false);
       const { data, error } = await supabaseBrowser().rpc("sync_control", {
         p_kind: kind,
         p_playing: playing,
@@ -253,10 +290,15 @@ export default function SyncRoom({
 
   async function toggle() {
     if (!room) return;
-    const now = targetPosition(room, offset, room.duration_ms);
-    await control(!room.playing, room.playing ? now : position);
+    const willPlay = !room.playing;
 
-    if (!room.playing) {
+    // Before any await — see primePlayback.
+    if (willPlay) primePlayback();
+
+    const now = targetPosition(room, offset, room.duration_ms);
+    await control(willPlay, room.playing ? now : position);
+
+    if (willPlay) {
       notifyPartner({
         title: me.display_name,
         body: room.title
@@ -272,7 +314,7 @@ export default function SyncRoom({
 
   async function seek(toMs: number) {
     if (!room) return;
-    if (isYouTube) player.current?.seekTo(toMs / 1000, true);
+    if (isYouTube) callPlayer(player.current, "seekTo", toMs / 1000, true);
     else if (media.current) media.current.currentTime = toMs / 1000;
     setPosition(toMs);
     await control(room.playing, toMs);
@@ -314,8 +356,8 @@ export default function SyncRoom({
   const mediaUrl = useSignedMedia(room?.source === "upload" ? room.track_ref : null);
   const total = room?.duration_ms || duration;
   const pending = snapshot?.queue ?? [];
+  const full = config.picture === "full";
 
-  // Past reactions surfacing as the same moment comes round again.
   const nearby = useMemo(() => {
     if (!snapshot) return [];
     const live = new Set(floating.map((f) => f.id));
@@ -345,36 +387,31 @@ export default function SyncRoom({
         </div>
       ) : (
         <div className="card mb-4 overflow-hidden">
-          <div ref={frame} className="relative bg-black">
-            <div className={config.showsPicture ? "aspect-video w-full" : "hidden"}>
+          <div ref={frame} className={`relative bg-black ${isBareAudio ? "hidden" : ""}`}>
+            {/*
+              Never `display: none` — see KindConfig.picture. In compact mode
+              the player is a short strip: still real pixels, so iOS will play
+              its audio, but not pretending a song is a film.
+            */}
+            <div className={full ? "aspect-video w-full" : "h-24 w-full overflow-hidden"}>
               {isYouTube ? (
                 <div ref={mount} className="h-full w-full" />
               ) : (
                 mediaUrl && (
                   <video
-                    ref={media}
+                    ref={(el) => {
+                      media.current = el;
+                    }}
                     src={mediaUrl}
                     playsInline
                     preload="auto"
-                    className="h-full w-full"
+                    className="h-full w-full object-cover"
                   />
                 )
               )}
             </div>
 
-            {/* Audio rooms still need the elements, just not on screen. */}
-            {!config.showsPicture && (
-              <div className="hidden">
-                {isYouTube ? (
-                  <div ref={mount} />
-                ) : (
-                  mediaUrl && <video ref={media} src={mediaUrl} preload="auto" />
-                )}
-              </div>
-            )}
-
-            {/* Live reactions drift over the picture. */}
-            {config.showsPicture && floating.length > 0 && (
+            {full && floating.length > 0 && (
               <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-wrap justify-center gap-2 px-3">
                 {floating.map((r) => (
                   <span
@@ -387,7 +424,7 @@ export default function SyncRoom({
               </div>
             )}
 
-            {config.showsPicture && (
+            {full && (
               <button
                 onClick={fullscreen}
                 aria-label="Fullscreen"
@@ -397,6 +434,18 @@ export default function SyncRoom({
               </button>
             )}
           </div>
+
+          {/* Plain audio needs no picture at all — <audio> plays hidden on iOS. */}
+          {isBareAudio && mediaUrl && (
+            <audio
+              ref={(el) => {
+                media.current = el;
+              }}
+              src={mediaUrl}
+              preload="auto"
+              className="hidden"
+            />
+          )}
 
           <div className="px-4 py-3.5">
             <p className="text-sm font-semibold">{room.title ?? "Untitled"}</p>
@@ -456,10 +505,19 @@ export default function SyncRoom({
             </div>
 
             {needsTap && (
-              <p className="mt-3 rounded-xl border border-line bg-sunken px-3 py-2.5 text-[0.75rem] leading-relaxed text-ink-soft">
-                Your browser will not start playback on its own. Tap play once and it stays
-                in step from then on.
-              </p>
+              <button
+                onClick={primePlayback}
+                className="press mt-3 w-full rounded-xl border border-line bg-sunken px-3 py-3 text-left text-[0.75rem] leading-relaxed text-ink-soft"
+              >
+                <span className="font-medium text-ink">Tap here for sound.</span> Your
+                browser will not start audio it did not ask for. One tap and it stays in
+                step from then on.
+                {kind === "listen" && (
+                  <span className="mt-1 block text-ink-faint">
+                    On an iPhone, also check the silent switch on the side.
+                  </span>
+                )}
+              </button>
             )}
           </div>
         </div>

@@ -23,6 +23,11 @@ streak against you.
 - **On this day** — anything from the timeline that happened on this date in an
   earlier year.
 
+**Chat** — the one place with no mutual reveal, no waiting, no negotiation.
+Everything else in this app is deliberately delayed disclosure; a couple still
+needs somewhere to just say the thing. Replies, photos, typing indicator, read
+receipts, soft deletes, and an unread badge on the tab.
+
 **Question** — one prompt a day, answered blind by both of you, revealed
 simultaneously. 78 prompts across four tiers (light → reflective → deep → just
 for us; the last is off by default).
@@ -117,6 +122,7 @@ In **SQL Editor**, run in order:
 8. `supabase/migrations/0008_seed_twenty_one.sql`
 9. `supabase/migrations/0009_listen_together.sql`
 10. `supabase/migrations/0010_sync_rooms.sql`
+11. `supabase/migrations/0011_chat.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:
@@ -291,6 +297,21 @@ Listening and watching are the same engine — one `sync_rooms` row per kind,
 one `SyncRoom` component driven by a config object. The differences between
 them are thresholds, labels and whether the picture is shown, which is not
 enough to justify a fork.
+
+**Never hide a media element you want to hear.** iOS refuses to emit audio from
+a `display: none` iframe or `<video>`, and YouTube falls back to *muted*
+playback when `playVideo()` is called outside a user gesture. Listening was
+silent on iPhone for both reasons at once: the player was hidden, and playback
+was started from the sync tick after an awaited round trip, long after the tap
+had expired. Hence `KindConfig.picture` has no "hidden" option, and
+`primePlayback()` runs synchronously inside the click handler before any
+`await`. A plain `<audio>` element is the one exception — that plays hidden.
+
+**A blank "Application error" screen is usually a stale build.** An installed
+PWA can be resumed days later, holding a document that references chunks the
+server no longer has. `lib/recover.ts` detects that class of error and reloads
+once — guarded, so a genuine failure shows a readable message instead of
+looping. `app/error.tsx` prints the real error rather than swallowing it.
 
 **Beware `returns table` in PL/pgSQL.** Output columns are in scope as
 variables, so a `returns table (… day date …)` function cannot refer to a

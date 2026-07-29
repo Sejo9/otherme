@@ -14,8 +14,31 @@ export type YTPlayer = {
   loadVideoById(id: string): void;
   cueVideoById(id: string): void;
   setVolume(v: number): void;
+  mute(): void;
+  unMute(): void;
+  isMuted(): boolean;
   destroy(): void;
 };
+
+/**
+ * The player's methods are attached asynchronously, so during the window
+ * between construction and `onReady` any of them may simply not exist yet.
+ * Calling one then throws, and a throw inside the sync interval is exactly the
+ * kind of thing that surfaces as a blank screen.
+ */
+export function callPlayer<K extends keyof YTPlayer>(
+  player: YTPlayer | null,
+  method: K,
+  ...args: Parameters<Extract<YTPlayer[K], (...a: never[]) => unknown>>
+): ReturnType<Extract<YTPlayer[K], (...a: never[]) => unknown>> | undefined {
+  const fn = player?.[method];
+  if (typeof fn !== "function") return undefined;
+  try {
+    return (fn as (...a: unknown[]) => never).apply(player, args);
+  } catch {
+    return undefined;
+  }
+}
 
 export const YT_STATE = {
   UNSTARTED: -1,
