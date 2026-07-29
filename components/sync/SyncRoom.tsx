@@ -3,33 +3,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
-import {
-  clock,
-  correctionFor,
-  measureClockOffset,
-  targetPosition,
-} from "@/lib/sync";
+import { clock, correctionFor, measureClockOffset, targetPosition } from "@/lib/sync";
 import { YT_STATE, loadYouTubeApi, type YTPlayer } from "@/lib/youtube";
 import type { Profile } from "@/lib/types";
-import { Flash, Problem, Section, SubNav, useFlash } from "@/components/ui";
+import { Flash, Problem, Section, useFlash } from "@/components/ui";
 import AddTrack from "./AddTrack";
 import ReactionTrack from "./ReactionTrack";
-import type { ListenSnapshot, QueueItem, Reaction } from "./types";
-import { REACTIONS } from "./types";
+import { KINDS, type QueueItem, type Reaction, type SyncKind, type SyncSnapshot } from "./types";
 
 /** How often we compare where we are to where we should be. */
 const CHECK_EVERY_MS = 2000;
 
-export default function ListenRoom({
+export default function SyncRoom({
+  kind,
   me,
   partner,
 }: {
+  kind: SyncKind;
   me: Profile;
   partner: Profile | null;
 }) {
+  const config = KINDS[kind];
   const them = partner?.display_name ?? "They";
 
-  const [snapshot, setSnapshot] = useState<ListenSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<SyncSnapshot | null>(null);
   const [offset, setOffset] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
   const [flash, setFlash] = useFlash();
@@ -39,57 +36,73 @@ export default function ListenRoom({
   const [ready, setReady] = useState(false);
   const [needsTap, setNeedsTap] = useState(false);
   const [partnerHere, setPartnerHere] = useState(false);
+  const [floating, setFloating] = useState<Reaction[]>([]);
 
   const mount = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
   const player = useRef<YTPlayer | null>(null);
-  const audio = useRef<HTMLAudioElement>(null);
+  const media = useRef<HTMLVideoElement>(null);
   const loadedRef = useRef<string | null>(null);
 
   const room = snapshot?.room ?? null;
   const isYouTube = room?.source === "youtube";
 
-  // --- loading ------------------------------------------------------------
+  // --- loading --------------------------------------------------------------
   const load = useCallback(async () => {
     const startedAt = Date.now();
-    const { data, error } = await supabaseBrowser().rpc("listen_snapshot");
+    const { data, error } = await supabaseBrowser().rpc("sync_snapshot", { p_kind: kind });
     const finishedAt = Date.now();
 
     if (error) {
       setProblem(error.message);
-      return null;
+      return;
     }
 
-    const fresh = data as ListenSnapshot;
+    const fresh = data as SyncSnapshot;
     setSnapshot(fresh);
     setOffset(measureClockOffset(fresh.server_now, startedAt, finishedAt));
-    return fresh;
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const advance = useCallback(async () => {
+    const { data, error } = await supabaseBrowser().rpc("sync_next", { p_kind: kind });
+    if (error) setProblem(error.message);
+    else setSnapshot(data as SyncSnapshot);
+  }, [kind]);
+
+  const advanceRef = useRef(advance);
+  advanceRef.current = advance;
 
   // --- live -----------------------------------------------------------------
   useEffect(() => {
     const sb = supabaseBrowser();
 
     const channel = sb
-      .channel("listen-room", { config: { presence: { key: me.id } } })
-      .on("postgres_changes", { event: "*", schema: "public", table: "listen_room" }, () =>
+      .channel(`sync-${kind}`, { config: { presence: { key: me.id } } })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sync_rooms" }, () =>
         load()
       )
-      .on("postgres_changes", { event: "*", schema: "public", table: "listen_queue" }, () =>
+      .on("postgres_changes", { event: "*", schema: "public", table: "sync_queue" }, () =>
         load()
       )
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "listen_reactions" },
+        { event: "INSERT", schema: "public", table: "sync_reactions" },
         ({ new: row }) => {
           const reaction = row as Reaction;
           setSnapshot((prev) =>
             prev && reaction.track_key === prev.room.track_key
               ? { ...prev, reactions: [...prev.reactions, reaction] }
               : prev
+          );
+          // Anything arriving live floats over the picture for a moment.
+          setFloating((prev) => [...prev, reaction]);
+          setTimeout(
+            () => setFloating((prev) => prev.filter((r) => r.id !== reaction.id)),
+            3200
           );
         }
       )
@@ -104,7 +117,7 @@ export default function ListenRoom({
     return () => {
       sb.removeChannel(channel);
     };
-  }, [me.id, load]);
+  }, [kind, me.id, load]);
 
   // --- the YouTube player ---------------------------------------------------
   useEffect(() => {
@@ -136,12 +149,11 @@ export default function ListenRoom({
           events: {
             onReady: () => setReady(true),
             onStateChange: (e) => {
-              if (e.data === YT_STATE.ENDED) advance();
-              // Blocked autoplay shows up as staying unstarted while the room
-              // says we should be playing.
+              if (e.data === YT_STATE.ENDED) advanceRef.current();
               if (e.data === YT_STATE.PLAYING) setNeedsTap(false);
             },
-            onError: () => setProblem("That video cannot be played embedded."),
+            onError: () =>
+              setProblem("That video will not play embedded. Try a different link."),
           },
         });
       })
@@ -150,9 +162,6 @@ export default function ListenRoom({
     return () => {
       cancelled = true;
     };
-    // `advance` is stable enough for this; re-running on it would rebuild the
-    // player on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isYouTube, room?.track_ref]);
 
   useEffect(() => {
@@ -167,52 +176,50 @@ export default function ListenRoom({
     if (!room?.track_ref) return;
 
     const tick = () => {
-      const target = targetPosition(room, offset, room.duration_ms);
-
-      const element = isYouTube ? player.current : audio.current;
+      const element = isYouTube ? player.current : media.current;
       if (!element) return;
 
+      const target = targetPosition(room, offset, room.duration_ms);
       const actual = isYouTube
         ? (player.current!.getCurrentTime() ?? 0) * 1000
-        : (audio.current!.currentTime ?? 0) * 1000;
+        : (media.current!.currentTime ?? 0) * 1000;
 
       setPosition(actual);
 
       const total = isYouTube
         ? (player.current!.getDuration() ?? 0) * 1000
-        : (audio.current!.duration ?? 0) * 1000;
+        : (media.current!.duration ?? 0) * 1000;
       if (Number.isFinite(total) && total > 0) setDuration(total);
 
       if (room.playing) {
-        // YouTube only offers coarse playback rates, so it corrects by seeking.
-        const correction = correctionFor(actual, target, !isYouTube);
+        // YouTube's playback rates are too coarse to nudge with, so it seeks.
+        const correction = correctionFor(actual, target, !isYouTube, config.tolerance);
 
         if (correction.kind === "seek") {
           if (isYouTube) player.current!.seekTo(correction.to / 1000, true);
-          else audio.current!.currentTime = correction.to / 1000;
-        } else if (correction.kind === "rate" && audio.current) {
-          audio.current.playbackRate = correction.rate;
-        } else if (audio.current) {
-          audio.current.playbackRate = 1;
+          else media.current!.currentTime = correction.to / 1000;
+        } else if (correction.kind === "rate" && media.current) {
+          media.current.playbackRate = correction.rate;
+        } else if (media.current) {
+          media.current.playbackRate = 1;
         }
 
-        // Make sure we are actually rolling.
         if (isYouTube) {
           const state = player.current!.getPlayerState();
           if (state !== YT_STATE.PLAYING && state !== YT_STATE.BUFFERING) {
             player.current!.playVideo();
             if (state === YT_STATE.UNSTARTED || state === YT_STATE.CUED) setNeedsTap(true);
           }
-        } else if (audio.current!.paused) {
-          audio.current!.play().catch(() => setNeedsTap(true));
+        } else if (media.current!.paused) {
+          media.current!.play().catch(() => setNeedsTap(true));
         }
       } else {
         if (isYouTube) {
           if (player.current!.getPlayerState() === YT_STATE.PLAYING) {
             player.current!.pauseVideo();
           }
-        } else if (!audio.current!.paused) {
-          audio.current!.pause();
+        } else if (!media.current!.paused) {
+          media.current!.pause();
         }
       }
     };
@@ -220,9 +227,9 @@ export default function ListenRoom({
     tick();
     const timer = setInterval(tick, CHECK_EVERY_MS);
     return () => clearInterval(timer);
-  }, [room, offset, isYouTube]);
+  }, [room, offset, isYouTube, config.tolerance]);
 
-  // Smooth progress bar between sync checks.
+  // Smooth progress between sync checks.
   useEffect(() => {
     if (!room?.playing) return;
     const timer = setInterval(() => setPosition((p) => p + 250), 250);
@@ -233,21 +240,16 @@ export default function ListenRoom({
   const control = useCallback(
     async (playing: boolean, positionMs: number) => {
       setNeedsTap(false);
-      const { data, error } = await supabaseBrowser().rpc("listen_control", {
+      const { data, error } = await supabaseBrowser().rpc("sync_control", {
+        p_kind: kind,
         p_playing: playing,
         p_position_ms: Math.round(positionMs),
       });
       if (error) setProblem(error.message);
-      else setSnapshot(data as ListenSnapshot);
+      else setSnapshot(data as SyncSnapshot);
     },
-    []
+    [kind]
   );
-
-  const advance = useCallback(async () => {
-    const { data, error } = await supabaseBrowser().rpc("listen_next");
-    if (error) setProblem(error.message);
-    else setSnapshot(data as ListenSnapshot);
-  }, []);
 
   async function toggle() {
     if (!room) return;
@@ -257,9 +259,13 @@ export default function ListenRoom({
     if (!room.playing) {
       notifyPartner({
         title: me.display_name,
-        body: room.title ? `is playing ${room.title}` : "started listening",
-        url: "/listen",
-        tag: "listen",
+        body: room.title
+          ? `started ${room.title}`
+          : kind === "watch"
+            ? "started watching"
+            : "started listening",
+        url: kind === "listen" ? "/listen" : "/watch",
+        tag: kind,
       });
     }
   }
@@ -267,7 +273,7 @@ export default function ListenRoom({
   async function seek(toMs: number) {
     if (!room) return;
     if (isYouTube) player.current?.seekTo(toMs / 1000, true);
-    else if (audio.current) audio.current.currentTime = toMs / 1000;
+    else if (media.current) media.current.currentTime = toMs / 1000;
     setPosition(toMs);
     await control(room.playing, toMs);
   }
@@ -276,7 +282,7 @@ export default function ListenRoom({
     if (!room?.track_key) return;
     navigator.vibrate?.(15);
 
-    await supabaseBrowser().from("listen_reactions").insert({
+    await supabaseBrowser().from("sync_reactions").insert({
       track_key: room.track_key,
       author_id: me.id,
       position_ms: Math.round(position),
@@ -285,7 +291,8 @@ export default function ListenRoom({
   }
 
   async function play(item: QueueItem) {
-    const { data, error } = await supabaseBrowser().rpc("listen_set_track", {
+    const { data, error } = await supabaseBrowser().rpc("sync_set_track", {
+      p_kind: kind,
       p_source: item.source,
       p_track_ref: item.track_ref,
       p_title: item.title,
@@ -294,66 +301,102 @@ export default function ListenRoom({
       p_queue_id: item.id,
     });
     if (error) setProblem(error.message);
-    else setSnapshot(data as ListenSnapshot);
+    else setSnapshot(data as SyncSnapshot);
   }
 
+  function fullscreen() {
+    const target = frame.current;
+    if (!target) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else target.requestFullscreen?.().catch(() => setFlash("Fullscreen was refused"));
+  }
+
+  const mediaUrl = useSignedMedia(room?.source === "upload" ? room.track_ref : null);
   const total = room?.duration_ms || duration;
   const pending = snapshot?.queue ?? [];
 
-  const audioUrl = useAudioUrl(
-    room?.source === "upload" ? room.track_ref : null
-  );
-
+  // Past reactions surfacing as the same moment comes round again.
   const nearby = useMemo(() => {
     if (!snapshot) return [];
+    const live = new Set(floating.map((f) => f.id));
     return snapshot.reactions.filter(
-      (r) => Math.abs(r.position_ms - position) < 2500
+      (r) => !live.has(r.id) && Math.abs(r.position_ms - position) < 2500
     );
-  }, [snapshot, position]);
+  }, [snapshot, position, floating]);
 
   return (
     <>
-      <SubNav
-        current="/listen"
-        items={[
-          { href: "/timeline", label: "Timeline" },
-          { href: "/map", label: "Map" },
-          { href: "/listen", label: "Listen" },
-        ]}
-      />
-
-      <header className="mb-4">
-        <div className="flex items-baseline justify-between">
-          <p className="label">Listening together</p>
-          <span
-            className={`text-[0.6875rem] ${partnerHere ? "text-ink" : "text-ink-faint"}`}
-          >
-            {partnerHere ? `${them} is here` : `${them} is not listening`}
-          </span>
-        </div>
+      <header className="mb-4 flex items-baseline justify-between">
+        <p className="label">{config.heading}</p>
+        <span className={`text-[0.6875rem] ${partnerHere ? "text-ink" : "text-ink-faint"}`}>
+          {partnerHere ? `${them} is here` : `${them} is not here`}
+        </span>
       </header>
 
       {problem && <Problem message={problem} />}
 
       {!room?.track_ref ? (
         <div className="card mb-5 px-5 py-9 text-center">
-          <p className="text-2xl">🎧</p>
-          <p className="mt-2 text-sm font-medium">Nothing playing</p>
-          <p className="mx-auto mt-1 max-w-[22rem] text-[0.8125rem] leading-relaxed text-ink-soft">
-            Put a song on and it starts on both your phones at the same moment. Whoever
-            is not here yet will land in the right place when they open it.
+          <p className="text-2xl">{kind === "watch" ? "📺" : "🎧"}</p>
+          <p className="mt-2 text-sm font-medium">{config.emptyTitle}</p>
+          <p className="mx-auto mt-1 max-w-[24rem] text-[0.8125rem] leading-relaxed text-ink-soft">
+            {config.emptyBody}
           </p>
         </div>
       ) : (
         <div className="card mb-4 overflow-hidden">
-          {/* The video is small on purpose: this is for listening. */}
-          <div className={isYouTube ? "aspect-video w-full bg-black" : "hidden"}>
-            <div ref={mount} className="h-full w-full" />
-          </div>
+          <div ref={frame} className="relative bg-black">
+            <div className={config.showsPicture ? "aspect-video w-full" : "hidden"}>
+              {isYouTube ? (
+                <div ref={mount} className="h-full w-full" />
+              ) : (
+                mediaUrl && (
+                  <video
+                    ref={media}
+                    src={mediaUrl}
+                    playsInline
+                    preload="auto"
+                    className="h-full w-full"
+                  />
+                )
+              )}
+            </div>
 
-          {room.source === "upload" && audioUrl && (
-            <audio ref={audio} src={audioUrl} preload="auto" className="hidden" />
-          )}
+            {/* Audio rooms still need the elements, just not on screen. */}
+            {!config.showsPicture && (
+              <div className="hidden">
+                {isYouTube ? (
+                  <div ref={mount} />
+                ) : (
+                  mediaUrl && <video ref={media} src={mediaUrl} preload="auto" />
+                )}
+              </div>
+            )}
+
+            {/* Live reactions drift over the picture. */}
+            {config.showsPicture && floating.length > 0 && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-wrap justify-center gap-2 px-3">
+                {floating.map((r) => (
+                  <span
+                    key={r.id}
+                    className="rise rounded-full bg-black/60 px-3 py-1.5 text-lg backdrop-blur"
+                  >
+                    {r.emoji}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {config.showsPicture && (
+              <button
+                onClick={fullscreen}
+                aria-label="Fullscreen"
+                className="press absolute right-2 top-2 rounded-full bg-black/55 px-2.5 py-1.5 text-xs text-white backdrop-blur"
+              >
+                ⛶
+              </button>
+            )}
+          </div>
 
           <div className="px-4 py-3.5">
             <p className="text-sm font-semibold">{room.title ?? "Untitled"}</p>
@@ -374,7 +417,7 @@ export default function ListenRoom({
               onSeek={seek}
             />
 
-            <div className="mt-1 flex items-center justify-between text-[0.6875rem] tabular-nums text-ink-faint">
+            <div className="flex items-center justify-between text-[0.6875rem] tabular-nums text-ink-faint">
               <span>{clock(position)}</span>
               <span>{total ? clock(total) : "—"}</span>
             </div>
@@ -382,9 +425,9 @@ export default function ListenRoom({
             <div className="mt-3 flex items-center gap-3">
               <button
                 onClick={toggle}
-                disabled={!ready && isYouTube}
+                disabled={isYouTube && !ready}
                 aria-label={room.playing ? "Pause" : "Play"}
-                className={`press flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg disabled:opacity-40 accent-${me.accent}`}
+                className={`press accent-${me.accent} flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg disabled:opacity-40`}
                 style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)" }}
               >
                 {room.playing ? "❚❚" : "▶"}
@@ -392,19 +435,19 @@ export default function ListenRoom({
 
               <button
                 onClick={advance}
+                aria-label="Next"
                 className="press rounded-full border border-line px-3.5 py-2.5 text-sm"
-                aria-label="Next track"
               >
                 ⏭
               </button>
 
               <div className="flex flex-1 justify-end gap-1.5">
-                {REACTIONS.map((emoji) => (
+                {config.reactions.map((emoji) => (
                   <button
                     key={emoji}
                     onClick={() => react(emoji)}
-                    className="press text-xl"
                     aria-label={`React ${emoji}`}
+                    className="press text-xl"
                   >
                     {emoji}
                   </button>
@@ -414,7 +457,7 @@ export default function ListenRoom({
 
             {needsTap && (
               <p className="mt-3 rounded-xl border border-line bg-sunken px-3 py-2.5 text-[0.75rem] leading-relaxed text-ink-soft">
-                Your browser will not start audio on its own. Tap play once and it stays
+                Your browser will not start playback on its own. Tap play once and it stays
                 in step from then on.
               </p>
             )}
@@ -422,29 +465,34 @@ export default function ListenRoom({
         </div>
       )}
 
-      {/* Reactions surfacing as they come round again. */}
       {nearby.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {nearby.map((r) => (
-            <span
-              key={r.id}
-              className={`rise accent-${r.author_id === me.id ? me.accent : (partner?.accent ?? "rose")} rounded-full border px-3 py-1.5 text-[0.75rem]`}
-              style={{ borderColor: "var(--accent)", background: "var(--accent-soft)" }}
-            >
-              {r.emoji}{" "}
-              <span className="text-ink-soft">
-                {r.author_id === me.id ? "you" : them}
-                {new Date(r.created_at).toDateString() !== new Date().toDateString() &&
-                  `, ${new Date(r.created_at).toLocaleDateString(undefined, { month: "short", year: "numeric" })}`}
+          {nearby.map((r) => {
+            const old = new Date(r.created_at).toDateString() !== new Date().toDateString();
+            return (
+              <span
+                key={r.id}
+                className={`rise accent-${r.author_id === me.id ? me.accent : (partner?.accent ?? "rose")} rounded-full border px-3 py-1.5 text-[0.75rem]`}
+                style={{ borderColor: "var(--accent)", background: "var(--accent-soft)" }}
+              >
+                {r.emoji}{" "}
+                <span className="text-ink-soft">
+                  {r.author_id === me.id ? "you" : them}
+                  {old &&
+                    `, ${new Date(r.created_at).toLocaleDateString(undefined, {
+                      month: "short",
+                      year: "numeric",
+                    })}`}
+                </span>
               </span>
-            </span>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      <AddTrack me={me} onAdded={load} onFlash={setFlash} />
+      <AddTrack kind={kind} me={me} onAdded={load} onFlash={setFlash} />
 
-      <Section title={`Up next${pending.length ? ` · ${pending.length}` : ""}`}>
+      <Section title={`${config.queueLabel}${pending.length ? ` · ${pending.length}` : ""}`}>
         {pending.length === 0 ? (
           <p className="px-1 text-[0.8125rem] text-ink-faint">
             Nothing queued. Paste a link above.
@@ -465,11 +513,11 @@ export default function ListenRoom({
                 </button>
                 <button
                   onClick={async () => {
-                    await supabaseBrowser().from("listen_queue").delete().eq("id", item.id);
+                    await supabaseBrowser().from("sync_queue").delete().eq("id", item.id);
                     load();
                   }}
-                  className="press shrink-0 text-[0.75rem] text-ink-faint"
                   aria-label="Remove"
+                  className="press shrink-0 text-[0.75rem] text-ink-faint"
                 >
                   ✕
                 </button>
@@ -484,8 +532,8 @@ export default function ListenRoom({
   );
 }
 
-/** Signed URL for an uploaded track. */
-function useAudioUrl(path: string | null | undefined): string | null {
+/** Signed URL for an uploaded file. */
+function useSignedMedia(path: string | null | undefined): string | null {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {

@@ -7,22 +7,26 @@ import { notifyPartner } from "@/lib/push";
 import { fetchYouTubeTitle, parseYouTubeId } from "@/lib/youtube";
 import type { Profile } from "@/lib/types";
 import { Button, Problem } from "@/components/ui";
+import { KINDS, type SyncKind } from "./types";
 
 /**
- * Adding something to listen to: a pasted link, or a file.
+ * Adding something to the queue: a pasted link, or a file.
  *
- * The "why this one" line is the point rather than a nicety — a song sent with
- * a reason is a different object from a song sent.
+ * The "why this one" line is the point rather than a nicety — something sent
+ * with a reason is a different object from something sent.
  */
 export default function AddTrack({
+  kind,
   me,
   onAdded,
   onFlash,
 }: {
+  kind: SyncKind;
   me: Profile;
   onAdded: () => void;
   onFlash: (message: string) => void;
 }) {
+  const config = KINDS[kind];
   const [link, setLink] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,9 +45,10 @@ export default function AddTrack({
     setBusy(true);
     setProblem(null);
 
-    const title = (await fetchYouTubeTitle(videoId)) ?? "YouTube track";
+    const title = (await fetchYouTubeTitle(videoId)) ?? "YouTube";
 
-    const { error } = await supabaseBrowser().from("listen_queue").insert({
+    const { error } = await supabaseBrowser().from("sync_queue").insert({
+      kind,
       added_by: me.id,
       source: "youtube",
       track_key: `youtube:${videoId}`,
@@ -63,8 +68,8 @@ export default function AddTrack({
     notifyPartner({
       title: me.display_name,
       body: note.trim() ? `queued ${title} — ${note.trim()}` : `queued ${title}`,
-      url: "/listen",
-      tag: "listen-queue",
+      url: kind === "listen" ? "/listen" : "/watch",
+      tag: `${kind}-queue`,
     });
     onFlash("Queued");
     onAdded();
@@ -79,14 +84,16 @@ export default function AddTrack({
     setProblem(null);
 
     try {
-      const path = `audio/${me.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+      const safe = file.name.replace(/[^\w.-]/g, "_");
+      const path = `${kind}/${me.id}/${crypto.randomUUID()}-${safe}`;
 
       const { error: uploadError } = await supabaseBrowser()
         .storage.from(BUCKET)
-        .upload(path, file, { contentType: file.type || "audio/mpeg" });
+        .upload(path, file, { contentType: file.type || "application/octet-stream" });
       if (uploadError) throw uploadError;
 
-      const { error } = await supabaseBrowser().from("listen_queue").insert({
+      const { error } = await supabaseBrowser().from("sync_queue").insert({
+        kind,
         added_by: me.id,
         source: "upload",
         track_key: `upload:${path}`,
@@ -113,7 +120,7 @@ export default function AddTrack({
       <input
         type="url"
         inputMode="url"
-        placeholder="Paste a YouTube link"
+        placeholder={config.addPlaceholder}
         value={link}
         onChange={(e) => setLink(e.target.value)}
       />
@@ -135,7 +142,7 @@ export default function AddTrack({
           variant="quiet"
           onClick={() => fileRef.current?.click()}
           disabled={busy}
-          aria-label="Upload an audio file"
+          aria-label="Upload a file"
         >
           ⤴ File
         </Button>
@@ -144,7 +151,7 @@ export default function AddTrack({
       <input
         ref={fileRef}
         type="file"
-        accept="audio/*"
+        accept={config.acceptFile}
         onChange={addFile}
         className="hidden"
       />

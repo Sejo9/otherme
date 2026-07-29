@@ -39,6 +39,7 @@ export default async function TimelinePage() {
           { href: "/timeline", label: "Timeline" },
           { href: "/map", label: "Map" },
           { href: "/listen", label: "Listen" },
+          { href: "/watch", label: "Watch" },
         ]}
       />
 

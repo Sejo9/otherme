@@ -43,23 +43,41 @@ export type Correction =
   | { kind: "rate"; rate: number }
   | { kind: "seek"; to: number };
 
-export const IN_SYNC_MS = 750;
-export const NUDGE_LIMIT_MS = 3000;
+export type Tolerance = {
+  /** Below this, do nothing at all. */
+  inSyncMs: number;
+  /** Between inSyncMs and this, close the gap by adjusting rate. Above, seek. */
+  nudgeLimitMs: number;
+};
+
+/**
+ * Music, listened to apart. Nobody hears both streams, so a fraction of a
+ * second is genuinely imperceptible.
+ */
+export const AUDIO_TOLERANCE: Tolerance = { inSyncMs: 750, nudgeLimitMs: 3000 };
+
+/**
+ * Video is tighter — not because the pictures phase, but because the whole
+ * point is reacting to the same moment. Half a second late on a punchline is
+ * noticeable in a way half a second late in a song is not.
+ */
+export const VIDEO_TOLERANCE: Tolerance = { inSyncMs: 400, nudgeLimitMs: 2500 };
 
 export function correctionFor(
   actualMs: number,
   targetMs: number,
-  canNudge: boolean
+  canNudge: boolean,
+  tolerance: Tolerance = AUDIO_TOLERANCE
 ): Correction {
   const drift = targetMs - actualMs;
   const magnitude = Math.abs(drift);
 
-  if (magnitude < IN_SYNC_MS) return { kind: "none" };
+  if (magnitude < tolerance.inSyncMs) return { kind: "none" };
 
-  // A small, steady rate change closes a modest gap invisibly. A seek would be
-  // audible. Only HTML audio can do this smoothly; YouTube's rates are coarse,
+  // A small, steady rate change closes a modest gap invisibly. A seek would
+  // not be. Only HTML media can do this smoothly; YouTube's rates are coarse,
   // so it seeks instead.
-  if (canNudge && magnitude < NUDGE_LIMIT_MS) {
+  if (canNudge && magnitude < tolerance.nudgeLimitMs) {
     return { kind: "rate", rate: drift > 0 ? 1.04 : 0.96 };
   }
 

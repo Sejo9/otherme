@@ -64,14 +64,22 @@ month, and everything with media attached is downloadable.
 **Map of us** — every place you've pinned, coloured by who pinned it. Tap
 anywhere to drop a pin, or use your current location.
 
-**Listen together** — a shared listening room. Queue a YouTube link or upload a
-file, press play, and it starts on both phones at the same moment. Whoever
-opens it late lands in the right place rather than at the start.
+**Listen together / Watch together** — two shared rooms on one engine. Queue a
+YouTube link or upload a file, press play, and it starts on both devices at the
+same moment. Whoever opens it late lands in the right place rather than at the
+start. Video gets a fullscreen frame and reactions that drift over the picture.
 
-Reactions are pinned to a **position in the track**, not to a moment in time,
-so they accumulate: play a song again next year and what you both said the
+Reactions are pinned to a **position in the media**, not to a moment in time,
+so they accumulate: play something again next year and what you both said the
 first time surfaces at the same points, dated. That is the actual product —
 synced playback is just what makes it possible.
+
+**Watchlist** — deliberately accepts things this app *cannot* play. Most of
+what a couple watches sits behind DRM that exposes no playback position, so
+synchronising it is impossible; deciding what to watch is not, and that is most
+of the friction anyway. Want to / watching / watched, per-person star ratings,
+and a *pick one for tonight* dice roll for when neither of you can choose. If
+an entry happens to be a YouTube link, it becomes playable in the room.
 
 **Rituals**
 
@@ -108,6 +116,7 @@ In **SQL Editor**, run in order:
 7. `supabase/migrations/0007_twenty_one.sql`
 8. `supabase/migrations/0008_seed_twenty_one.sql`
 9. `supabase/migrations/0009_listen_together.sql`
+10. `supabase/migrations/0010_sync_rooms.sql`
 
 If the SQL editor returns `Failed to fetch`, that is a browser/network error
 rather than a SQL one — the statement may well have run. Prefer the CLI:
@@ -269,11 +278,19 @@ connection is correct again the instant it reads the row. The anchor is stamped
 by the database and `listen_snapshot` returns the server clock, so the two
 phones never have to agree about what time it is.
 
-Drift correction is deliberately relaxed — under 750ms it does nothing. You are
-on separate speakers in separate rooms, so nobody hears both streams at once
-and small offsets are inaudible. Correcting harder than that produces audible
-stutter and buys nothing. HTML audio closes a moderate gap by nudging
-`playbackRate`; YouTube's rates are too coarse for that, so it seeks.
+Drift tolerance differs by kind. Audio ignores anything under 750ms — you are
+on separate speakers in separate rooms, nobody hears both streams, and small
+offsets are inaudible; correcting harder produces stutter and buys nothing.
+Video tightens to 400ms, not because the pictures phase but because the point
+is reacting to the same moment: half a second late on a punchline is noticeable
+in a way half a second late in a song is not. HTML media closes a moderate gap
+by nudging `playbackRate` invisibly; YouTube's rates are too coarse for that,
+so it seeks.
+
+Listening and watching are the same engine — one `sync_rooms` row per kind,
+one `SyncRoom` component driven by a config object. The differences between
+them are thresholds, labels and whether the picture is shown, which is not
+enough to justify a fork.
 
 **Beware `returns table` in PL/pgSQL.** Output columns are in scope as
 variables, so a `returns table (… day date …)` function cannot refer to a
@@ -303,9 +320,5 @@ value-per-effort:
   endpoints are Premium-only. Drive the *Web API* against each person's active
   device rather than the Web Playback SDK: the SDK needs Widevine and is
   effectively broken on iOS Safari, which is fatal for a phone-first app.
-- **Sync watch** — same engine as listening. Works for anything you host and
-  for YouTube via the iframe API. Does *not* work for Netflix, Disney+, HBO or
-  Prime: those players are DRM-protected and expose no scriptable position, so
-  there is nothing to synchronise against.
 - **Delivery scheduling for push** — a scheduled voice note currently arrives
   silently; a Supabase cron job could fire the notification at `deliver_at`.
