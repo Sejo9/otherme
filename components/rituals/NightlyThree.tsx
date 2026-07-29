@@ -139,14 +139,19 @@ export default function NightlyThree({
 
         {theirs && (
           <div className={`accent-${partner?.accent ?? "rose"} mt-3 border-t border-line pt-3`}>
-            <p className="label mb-1" style={{ color: "var(--accent)" }}>
+            <p className="label mb-2" style={{ color: "var(--accent)" }}>
               {partner?.display_name ?? "Them"} · {ago(theirs.created_at)}
             </p>
-            {theirs.appreciation ? (
-              <p className="text-[0.875rem] leading-relaxed">💛 {theirs.appreciation}</p>
-            ) : (
-              <p className="text-[0.8125rem] text-ink-faint">Checked in.</p>
-            )}
+            <Recap checkin={theirs} />
+          </div>
+        )}
+
+        {mine && (
+          <div className={`accent-${me.accent} mt-3 border-t border-line pt-3`}>
+            <p className="label mb-2" style={{ color: "var(--accent)" }}>
+              You
+            </p>
+            <Recap checkin={mine} />
           </div>
         )}
       </button>
@@ -180,6 +185,42 @@ export default function NightlyThree({
 
       <Flash>{flash}</Flash>
     </>
+  );
+}
+
+/**
+ * All three parts of a check-in.
+ *
+ * The high and the low were being fetched and then quietly dropped, which made
+ * the ritual a one-way appreciation box. Reading what was good and what was
+ * hard about their day is most of the value — the appreciation is the part
+ * that accrues, but the other two are the part you learn from.
+ */
+function Recap({ checkin }: { checkin: NightlyCheckin }) {
+  const empty = !checkin.high && !checkin.low && !checkin.appreciation;
+  if (empty) return <p className="text-[0.8125rem] text-ink-faint">Checked in.</p>;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {checkin.high && <Line icon="▲" label="High" text={checkin.high} />}
+      {checkin.low && <Line icon="▼" label="Low" text={checkin.low} />}
+      {checkin.appreciation && <Line icon="💛" label="You" text={checkin.appreciation} />}
+    </div>
+  );
+}
+
+function Line({ icon, label, text }: { icon: string; label: string; text: string }) {
+  return (
+    <p className="text-[0.875rem] leading-relaxed">
+      <span
+        className="mr-1.5 text-[0.6875rem] text-ink-faint"
+        title={label}
+        aria-label={label}
+      >
+        {icon}
+      </span>
+      {text}
+    </p>
   );
 }
 

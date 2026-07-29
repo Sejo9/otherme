@@ -1,9 +1,10 @@
 import { requireSession } from "@/lib/session";
 import { supabaseServer } from "@/lib/supabase/server";
 import { prettyDay } from "@/lib/day";
-import type { TimelineEntry } from "@/lib/types";
+import type { NightlyCheckin, TimelineEntry } from "@/lib/types";
 import { Empty, Section } from "@/components/ui";
 import NightlyThree from "@/components/rituals/NightlyThree";
+import NightlyHistory from "@/components/rituals/NightlyHistory";
 import QuestionJar from "@/components/rituals/QuestionJar";
 import Capsules from "@/components/rituals/Capsules";
 import VoiceNote from "@/components/rituals/VoiceNote";
@@ -15,16 +16,25 @@ export default async function RitualsPage() {
   const { me, partner } = await requireSession();
   const supabase = await supabaseServer();
 
-  // The ledger: every appreciation either of you has ever written down.
-  const { data } = await supabase
-    .from("timeline_entries")
-    .select("*")
-    .eq("kind", "appreciation")
-    .order("occurred_on", { ascending: false })
-    .limit(200);
+  const [{ data }, { data: nights }] = await Promise.all([
+    // The ledger: every appreciation either of you has ever written down.
+    supabase
+      .from("timeline_entries")
+      .select("*")
+      .eq("kind", "appreciation")
+      .order("occurred_on", { ascending: false })
+      .limit(200),
+    // Both people's recent check-ins, in full.
+    supabase
+      .from("nightly_checkins")
+      .select("*")
+      .order("day", { ascending: false })
+      .limit(60),
+  ]);
 
   const ledger = (data ?? []) as TimelineEntry[];
   const forMe = ledger.filter((e) => e.author_id !== me.id);
+  const checkins = (nights ?? []) as NightlyCheckin[];
 
   return (
     <>
@@ -37,6 +47,10 @@ export default async function RitualsPage() {
 
       <Section title="Tonight">
         <NightlyThree me={me} partner={partner} />
+      </Section>
+
+      <Section title="Recent nights">
+        <NightlyHistory checkins={checkins} me={me} partner={partner} />
       </Section>
 
       <Section title="Out loud">
