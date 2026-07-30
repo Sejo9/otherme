@@ -6,7 +6,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { notifyPartner } from "@/lib/push";
 import { ago } from "@/lib/day";
 import { connect4Initial, reversiInitial } from "@/lib/games";
-import { checkersInitial } from "@/lib/checkers";
+import { checkersInitial, type CheckersRules } from "@/lib/checkers";
 import { GAMES, type Game, type GameKind, type GameRecord, type Profile } from "@/lib/types";
 import { Empty, Problem, Section, SubNav, useBackDismiss } from "@/components/ui";
 import GameBoard from "./GameBoard";
@@ -23,6 +23,10 @@ export default function GamesLobby({
   const [openId, setOpenId] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+
+  // Baked into each game when it is created, so a game never changes rules
+  // half way through. Whoever starts decides.
+  const [backwardCaptures, setBackwardCaptures] = useState(true);
 
   const load = useCallback(async () => {
     const sb = supabaseBrowser();
@@ -54,11 +58,12 @@ export default function GamesLobby({
 
     // Whoever starts takes seat 1 and moves first — white, in chess.
     const seats = { 1: me.id, 2: partner.id };
+    const rules: CheckersRules = { backwardCaptures };
     const state =
       kind === "chess"
         ? { fen: new Chess().fen(), history: [], seats }
         : kind === "checkers"
-          ? { board: checkersInitial(), chain: null, seats }
+          ? { board: checkersInitial(), chain: null, seats, rules }
           : { board: kind === "connect4" ? connect4Initial() : reversiInitial(), seats };
 
     const { data, error } = await supabaseBrowser()
@@ -142,6 +147,26 @@ export default function GamesLobby({
             </button>
           ))}
         </div>
+
+        {/* Whether men may capture backwards genuinely varies by where you
+            learned. English draughts says no; Russian, International and most
+            kitchen tables say yes. */}
+        <label className="mt-3 flex items-center justify-between rounded-2xl border border-line bg-sunken px-4 py-3">
+          <span className="pr-3">
+            <span className="block text-sm font-medium">Checkers: backward captures</span>
+            <span className="block text-[0.75rem] leading-snug text-ink-faint">
+              {backwardCaptures
+                ? "Men can take in any direction, so longer chains are possible."
+                : "Strict English rules — men take forwards only."}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={backwardCaptures}
+            onChange={(e) => setBackwardCaptures(e.target.checked)}
+            className="h-6 w-6 shrink-0"
+          />
+        </label>
       </Section>
 
       <Section title="In progress">

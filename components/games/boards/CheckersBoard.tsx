@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  DEFAULT_RULES,
   SIZE,
   applyMove,
   count,
@@ -10,6 +11,7 @@ import {
   legalMoves,
   seatOf,
   type CheckersBoard,
+  type CheckersRules,
   type Move,
 } from "@/lib/checkers";
 import type { Seat } from "@/lib/games";
@@ -20,6 +22,8 @@ type State = {
   board: CheckersBoard;
   seats: Record<string, string>;
   chain: [number, number] | null;
+  /** Absent on games started before the variant existed. */
+  rules?: CheckersRules;
 };
 
 export default function CheckersBoardView({
@@ -32,6 +36,7 @@ export default function CheckersBoardView({
   const state = game.state as unknown as State;
   const board = state.board;
   const chain = state.chain ?? null;
+  const rules = state.rules ?? DEFAULT_RULES;
   const theirSeat: Seat = mySeat === 1 ? 2 : 1;
   const pieces = count(board);
 
@@ -41,8 +46,8 @@ export default function CheckersBoardView({
   const active = chain ?? selected;
 
   const moves = useMemo(
-    () => (myTurn ? legalMoves(board, mySeat, chain) : []),
-    [board, mySeat, myTurn, chain]
+    () => (myTurn ? legalMoves(board, mySeat, chain, rules) : []),
+    [board, mySeat, myTurn, chain, rules]
   );
 
   const sources = useMemo(
@@ -74,7 +79,7 @@ export default function CheckersBoardView({
 
     const move = targets.get(`${r}-${c}`);
     if (move) {
-      const result = applyMove(board, move, mySeat);
+      const result = applyMove(board, move, mySeat, rules);
       setSelected(result.chain);
       onMove({
         state: { ...state, board: result.board, chain: result.chain },
@@ -166,7 +171,7 @@ export default function CheckersBoardView({
         </div>
       </div>
 
-      {myTurn && (
+      {myTurn ? (
         <p className="text-center text-[0.6875rem] text-ink-faint">
           {chain
             ? "You must keep jumping with that piece."
@@ -175,6 +180,12 @@ export default function CheckersBoardView({
               : active
                 ? "Tap a dot to move."
                 : "Tap one of your pieces."}
+        </p>
+      ) : (
+        <p className="text-center text-[0.6875rem] text-ink-faint">
+          {rules.backwardCaptures
+            ? "Men capture in any direction."
+            : "English rules: men capture forwards only."}
         </p>
       )}
     </div>

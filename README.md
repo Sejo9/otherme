@@ -43,8 +43,17 @@ database, not the client.
 
 Chess has legal-move highlighting, castling, en passant, promotion, check and
 checkmate detection, a captured-piece tray and a move list. Checkers enforces
-compulsory captures and multi-jumps. Both boards flip so your own pieces are
-always nearest you.
+compulsory captures, multi-jump chains and crowning. Both boards flip so your
+own pieces are always nearest you.
+
+Checkers has one variant switch: **backward captures**. Whether an uncrowned man
+may take backwards genuinely differs by where you learned — English draughts
+says no, Russian and International say yes, and most people who learned at a
+kitchen table say yes. It defaults to on, and is fixed per game when the game
+is created, so a game never changes rules half way through. Note that men
+always *move* forwards only, in every variant; only capturing is affected.
+
+The rules engine has tests: `npm run test:checkers`.
 
 **21 Questions** — a round of 21 couples questions, drawn from a pool of 140
 written for people who already have a history together. Same mutual reveal as

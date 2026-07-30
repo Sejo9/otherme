@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test:checkers": "node scripts/checkers.test.mts",
     "gen:vapid": "node scripts/gen-vapid.mjs"
   },
   "dependencies": {
