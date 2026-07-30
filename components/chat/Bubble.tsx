@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useSignedUrl } from "@/lib/media";
 import type { Profile } from "@/lib/types";
 import { useBackDismiss } from "@/components/ui";
-import type { Message } from "./types";
+import { canEdit, type Message } from "./types";
 
 function time(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, {
@@ -20,7 +20,9 @@ export default function Bubble({
   author,
   continuation,
   showSeen,
+  meId,
   onReply,
+  onEdit,
   onDelete,
 }: {
   message: Message;
@@ -29,7 +31,9 @@ export default function Bubble({
   author: Profile | null;
   continuation: boolean;
   showSeen: boolean;
+  meId: string;
   onReply: (message: Message) => void;
+  onEdit: (message: Message) => void;
   onDelete: (message: Message) => void;
 }) {
   const url = useSignedUrl(message.media_path);
@@ -128,6 +132,17 @@ export default function Bubble({
               >
                 Reply
               </button>
+              {canEdit(message, meId) && (
+                <button
+                  onClick={() => {
+                    onEdit(message);
+                    setMenu(false);
+                  }}
+                  className="press rounded-full px-2.5 py-1 text-[0.75rem]"
+                >
+                  Edit
+                </button>
+              )}
               {message.body && (
                 <button
                   onClick={() => {

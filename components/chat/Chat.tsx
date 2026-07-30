@@ -8,7 +8,14 @@ import { prettyDay, localDay } from "@/lib/day";
 import type { Profile } from "@/lib/types";
 import { Problem } from "@/components/ui";
 import Bubble from "./Bubble";
-import { groupByDay, isContinuation, type ChatRead, type Message } from "./types";
+import EmojiPicker from "./EmojiPicker";
+import {
+  editTimeLeft,
+  groupByDay,
+  isContinuation,
+  type ChatRead,
+  type Message,
+} from "./types";
 
 const PAGE = 60;
 
@@ -25,6 +32,8 @@ export default function Chat({
   const [reads, setReads] = useState<ChatRead[]>([]);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [theyAreTyping, setTheyAreTyping] = useState(false);
@@ -33,6 +42,7 @@ export default function Chat({
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const typingChannel = useRef<ReturnType<
     ReturnType<typeof supabaseBrowser>["channel"]
   > | null>(null);
@@ -148,14 +158,54 @@ export default function Chat({
     });
   }
 
+  /** Starts editing: the message goes back into the composer, Telegram-style. */
+  function beginEdit(message: Message) {
+    setEditing(message);
+    setReplyTo(null);
+    setDraft(message.body ?? "");
+    setProblem(null);
+    requestAnimationFrame(() => {
+      const el = input.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setDraft("");
+  }
+
   async function send() {
     const body = draft.trim();
     if (!body || sending) return;
 
     setSending(true);
-    setDraft("");
+    const target = editing;
     const reply = replyTo;
+    setDraft("");
     setReplyTo(null);
+    setEditing(null);
+    setEmojiOpen(false);
+
+    if (target) {
+      // The five minute window is enforced by a trigger, so an expired edit
+      // fails here with the database's own wording rather than going through.
+      const { error } = await supabaseBrowser()
+        .from("messages")
+        .update({ body })
+        .eq("id", target.id);
+
+      setSending(false);
+      if (error) {
+        setProblem(error.message);
+        setDraft(body);
+        setEditing(target);
+      }
+      return;
+    }
+
     stickToBottom.current = true;
 
     const { error } = await supabaseBrowser().from("messages").insert({
@@ -176,6 +226,32 @@ export default function Chat({
       body: body.length > 120 ? `${body.slice(0, 117)}…` : body,
       url: "/chat",
       tag: "chat",
+    });
+  }
+
+  /**
+   * Inserts at the caret rather than appending, so picking an emoji
+   * mid-sentence does what you meant.
+   */
+  function insertEmoji(char: string) {
+    const el = input.current;
+
+    if (!el) {
+      setDraft((d) => d + char);
+      return;
+    }
+
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+    const next = el.value.slice(0, start) + char + el.value.slice(end);
+
+    setDraft(next);
+    announceTyping();
+
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + char.length;
+      el.setSelectionRange(caret, caret);
     });
   }
 
@@ -279,7 +355,9 @@ export default function Chat({
                 author={message.author_id === me.id ? me : partner}
                 continuation={isContinuation(message, group.messages[i - 1])}
                 showSeen={message.id === lastSeenMine}
+                meId={me.id}
                 onReply={setReplyTo}
+                onEdit={beginEdit}
                 onDelete={remove}
               />
             ))}
@@ -291,7 +369,15 @@ export default function Chat({
 
       {/* --- composer --- */}
       <div className="shrink-0 pt-2">
-        {replyTo && (
+        <EmojiPicker
+          open={emojiOpen}
+          onPick={insertEmoji}
+          onClose={() => setEmojiOpen(false)}
+        />
+
+        {editing && <EditingBanner message={editing} onCancel={cancelEdit} />}
+
+        {replyTo && !editing && (
           <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-line bg-sunken px-3 py-2">
             <span className="min-w-0 flex-1 truncate text-[0.75rem] text-ink-soft">
               Replying to {replyTo.body ?? "photo"}
@@ -306,41 +392,58 @@ export default function Chat({
           </div>
         )}
 
-        <div className={`accent-${me.accent} flex items-end gap-2`}>
+        <div className={`accent-${me.accent} flex items-end gap-1.5`}>
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={sending}
+            disabled={sending || !!editing}
             aria-label="Send a photo"
-            className="press mb-0.5 shrink-0 rounded-full border border-line px-3 py-2.5 text-sm disabled:opacity-40"
+            className="press mb-0.5 shrink-0 rounded-full border border-line px-3 py-2.5 text-sm disabled:opacity-30"
           >
             ＋
           </button>
 
+          <button
+            onClick={() => setEmojiOpen((v) => !v)}
+            aria-label="Emoji"
+            aria-expanded={emojiOpen}
+            className={`press mb-0.5 shrink-0 rounded-full border px-3 py-2 text-lg leading-none ${
+              emojiOpen ? "border-transparent bg-sunken" : "border-line"
+            }`}
+          >
+            🙂
+          </button>
+
           <textarea
+            ref={input}
             rows={1}
             value={draft}
-            placeholder="Say something"
+            placeholder={editing ? "Fix it" : "Say something"}
             onChange={(e) => {
               setDraft(e.target.value);
               announceTyping();
             }}
             onKeyDown={(e) => {
+              if (e.key === "Escape" && editing) {
+                e.preventDefault();
+                cancelEdit();
+                return;
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 send();
               }
             }}
-            className="max-h-32 min-h-[2.75rem] resize-none"
+            className="max-h-32 min-h-11 resize-none"
           />
 
           <button
             onClick={send}
             disabled={!draft.trim() || sending}
-            aria-label="Send"
+            aria-label={editing ? "Save edit" : "Send"}
             className="press mb-0.5 shrink-0 rounded-full px-4 py-2.5 text-sm font-medium disabled:opacity-40"
             style={{ background: "var(--accent)", color: "var(--bg)" }}
           >
-            ↑
+            {editing ? "✓" : "↑"}
           </button>
         </div>
 
@@ -352,6 +455,50 @@ export default function Chat({
           className="hidden"
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Shows how long is left, ticking down. Better to watch it run out than to
+ * press save and be told no.
+ */
+function EditingBanner({
+  message,
+  onCancel,
+}: {
+  message: Message;
+  onCancel: () => void;
+}) {
+  const [left, setLeft] = useState(() => editTimeLeft(message));
+
+  useEffect(() => {
+    setLeft(editTimeLeft(message));
+    const timer = setInterval(() => setLeft(editTimeLeft(message)), 1000);
+    return () => clearInterval(timer);
+  }, [message]);
+
+  const seconds = Math.ceil(left / 1000);
+  const expired = left <= 0;
+
+  return (
+    <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-line bg-sunken px-3 py-2">
+      <span className="shrink-0 text-[0.75rem]">✎</span>
+      <span className="min-w-0 flex-1 truncate text-[0.75rem] text-ink-soft">
+        {expired ? "Too late to edit this one" : "Editing"}
+      </span>
+      {!expired && (
+        <span className="shrink-0 text-[0.6875rem] tabular-nums text-ink-faint">
+          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+        </span>
+      )}
+      <button
+        onClick={onCancel}
+        aria-label="Cancel editing"
+        className="press shrink-0 text-[0.75rem] text-ink-faint"
+      >
+        ✕
+      </button>
     </div>
   );
 }
